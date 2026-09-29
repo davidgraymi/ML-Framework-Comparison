@@ -1,0 +1,8 @@
+"""Optional framework adapters and the custom-adapter contract."""
+
+from .base import FrameworkAdapter
+from .jax import JaxAdapter
+from .tensorflow import TensorFlowAdapter
+from .torch import TorchAdapter
+
+__all__ = ["FrameworkAdapter", "JaxAdapter", "TensorFlowAdapter", "TorchAdapter"]

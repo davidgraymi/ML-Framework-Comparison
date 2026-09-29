@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "neural-cost"
+version = "0.1.0"
+description = "Theoretical and measured memory/compute analysis for neural networks."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Neural Cost contributors" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.optional-dependencies]
+torch = ["torch>=2.0"]
+jax = ["jax>=0.4"]
+tensorflow = ["tensorflow>=2.12"]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[project.urls]
+Homepage = "https://github.com/davidgray/ML-Framework-Comparison"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/neural_cost"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
