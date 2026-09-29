@@ -1720,7 +1720,6 @@ wheels = [
 
 [[package]]
 name = "neural-cost"
-version = "0.1.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -1755,7 +1754,7 @@ requires-dist = [
     { name = "tensorflow", marker = "extra == 'tensorflow'", specifier = ">=2.12" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.0" },
 ]
-provides-extras = ["torch", "jax", "tensorflow", "dev"]
+provides-extras = ["dev", "jax", "tensorflow", "torch"]
 
 [package.metadata.requires-dev]
 dev = [
