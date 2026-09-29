@@ -68,6 +68,13 @@ def estimate_operation(operation: Operation) -> CostEstimate:
         if "flops" not in operation.attrs:
             raise ValueError("custom operations require attrs['flops']")
         flops = int(operation.attrs["flops"])
+    elif kind == "softmax" or kind in {"layernorm", "batchnorm"}:
+        flops = 5 * numel(operation.output)
+    elif kind == "pooling":
+        kernel_size = operation.attrs.get("kernel_size")
+        if not isinstance(kernel_size, tuple) or len(kernel_size) != 2:
+            raise ValueError("pooling requires attrs['kernel_size'] as (kH, kW)")
+        flops = numel(operation.output) * kernel_size[0] * kernel_size[1]
     else:  # Defensive in case a caller bypasses static typing.
         raise ValueError(f"unsupported operation kind: {kind}")
     return CostEstimate(flops, read_bytes, write_bytes, 1)

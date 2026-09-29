@@ -7,7 +7,17 @@ frameworks can construct them directly without depending on any ML runtime.
 from dataclasses import dataclass, field
 from typing import Literal
 
-OperationKind = Literal["matmul", "linear", "conv2d", "elementwise", "custom"]
+OperationKind = Literal[
+    "matmul",
+    "linear",
+    "conv2d",
+    "elementwise",
+    "custom",
+    "softmax",
+    "layernorm",
+    "batchnorm",
+    "pooling",
+]
 
 
 @dataclass(frozen=True, slots=True)

@@ -23,24 +23,29 @@ flowchart LR
     Operations["Portable Operation records"]
     Static["Static profile\nFLOPs · traffic · parameter bytes\nactivation bounds"]
     Dynamic["Dynamic tracer\nruntime · allocator telemetry\nPyTorch profiler events"]
+    Detect["Hardware Detect\nchip table · STREAM triad\nnvidia-smi · CPU fallback"]
     Hardware["HardwareSpec\npeak FLOP/s · bandwidth"]
     Gap["Gap analysis\nroofline efficiency · memory overhead\nfindings"]
 
     Model --> Adapters
     Adapters --> Operations --> Static --> Gap
     Adapters --> Dynamic --> Gap
+    Detect --> Hardware
     Hardware --> Gap
 ```
 
 ## Analyze portable operations
 
 ```python
-from neural_cost import HardwareSpec, Operation, analyze_gap, benchmark, estimate_operations
+from neural_cost import HardwareSpec, Operation, analyze_gap, benchmark, estimate_operations, detect_hardware
 
 ops = [Operation("classifier", "linear", ((32, 768), (768, 1000)), (32, 1000), 2)]
 estimate = estimate_operations(ops)
 measurement = benchmark(lambda: run_inference(), warmup=5, repeats=20)
-hardware = HardwareSpec("GPU", peak_flops=312e12, memory_bandwidth=1.6e12)
+
+# Auto-detect or specify manually:
+hardware, info = detect_hardware()
+# Or: hardware = HardwareSpec("GPU", peak_flops=312e12, memory_bandwidth=1.6e12)
 report = analyze_gap(estimate, measurement, hardware)
 
 print(report.render())
@@ -71,6 +76,26 @@ print(profile.memory.training_minimum_bytes)
 The minimum activation bound is the largest output tensor. The conservative
 bound assumes all forward outputs remain live, so real allocator telemetry is
 the source of truth for physical VRAM use.
+
+## Hardware detection
+
+Auto-detection via `detect_hardware()` returns a `(HardwareSpec, DetectionResult)` tuple
+to determine hardware peak compute and memory bandwidth:
+
+- **Auto-detection via `detect_hardware()`**: Returns `(HardwareSpec, DetectionResult)` containing roofline specifications and detection provenance.
+- **Apple Silicon lookup from chip table**: Identifies Apple Silicon chips (M1–M4 series) and looks up published peak FP32 throughput and memory bandwidth.
+- **NumPy STREAM-triad bandwidth benchmark**: Measures live effective memory bandwidth using a STREAM Triad kernel (`c = a + scalar * b`).
+- **NVIDIA GPU probe via nvidia-smi**: Probes GPU models, clock rates, and bus specs on systems with NVIDIA GPUs.
+- **CPU fallback**: Falls back to CPU logical core counts and clock rates when accelerator probes are unavailable.
+
+```python
+from neural_cost import detect_hardware
+
+hardware, info = detect_hardware()
+print(f"Device: {hardware.device_name} ({info.source})")
+print(f"Peak FLOP/s: {hardware.peak_flops / 1e12:.1f} TFLOP/s")
+print(f"Bandwidth: {hardware.memory_bandwidth / 1e9:.1f} GB/s")
+```
 
 ## Framework adapters
 
@@ -108,14 +133,19 @@ PYTHONPATH=src python -m unittest tests/test_adapters_e2e.py -v
 ```
 
 For a human-readable comparison using a larger shared workload, install the
-frameworks you want to compare and run the example. Supply the peak compute
-and bandwidth figures for the device in use to make roofline efficiency
-meaningful.
+frameworks you want to compare and run the example. Hardware is auto-detected by
+default:
 
 ```bash
 pip install -e '.[torch,jax,tensorflow]'
-PYTHONPATH=src python examples/compare_frameworks.py \
-  --peak-flops 312e12 --memory-bandwidth 1.6e12
+python examples/compare_frameworks.py
+```
+
+Explicit overrides are available if you want to provide known hardware specs:
+
+```bash
+# Override with known hardware specs:
+python examples/compare_frameworks.py --peak-flops 312e12 --memory-bandwidth 1.6e12
 ```
 
 ## Custom frameworks
@@ -129,8 +159,9 @@ independent estimator and analyzer.
 ## Current scope
 
 The package profiles concrete-shape dense, matrix-multiply, convolution, and
-common elementwise inference graphs. Static training storage includes gradients
-and optimizer state but does not yet trace a full backward graph. Activation
-checkpointing, distributed communication, dynamic shapes, fusion details,
-complete graph coverage, and non-PyTorch kernel-level traces remain deliberate
-next increments rather than silently approximated.
+common elementwise inference graphs, alongside supported operations for
+`softmax`, `layernorm`, `batchnorm`, and `pooling`. Static training storage
+includes gradients and optimizer state but does not yet trace a full backward
+graph. Activation checkpointing, distributed communication, dynamic shapes,
+fusion details, complete graph coverage, and non-PyTorch kernel-level traces
+remain deliberate next increments rather than silently approximated.
