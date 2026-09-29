@@ -43,7 +43,14 @@ class TensorFlowAdapter(FrameworkAdapter):
             pending.extend(getattr(layer, "layers", ()))
 
         for layer in layers:
-            if not isinstance(layer, (tf.keras.layers.Dense, tf.keras.layers.Conv2D)):
+            if not isinstance(layer, (
+                tf.keras.layers.Dense, tf.keras.layers.Conv2D,
+                tf.keras.layers.Activation, tf.keras.layers.ReLU, tf.keras.layers.LeakyReLU, tf.keras.layers.ELU,
+                tf.keras.layers.Softmax,
+                tf.keras.layers.BatchNormalization, tf.keras.layers.LayerNormalization,
+                tf.keras.layers.MaxPooling2D, tf.keras.layers.AveragePooling2D,
+                tf.keras.layers.GlobalAveragePooling2D
+            )):
                 continue
             previous_call = layer.call
 
@@ -63,7 +70,7 @@ class TensorFlowAdapter(FrameworkAdapter):
                             },
                         )
                     )
-                else:
+                elif isinstance(_layer, tf.keras.layers.Conv2D):
                     # TF is NHWC while the portable Conv2D record is NCHW.
                     x = shape(inputs)
                     y = shape(output)
@@ -82,6 +89,51 @@ class TensorFlowAdapter(FrameworkAdapter):
                                 "parameter_bytes": int(_layer.count_params()) * inputs.dtype.size,
                                 "parameter_id": id(_layer.kernel),
                             },
+                        )
+                    )
+                elif isinstance(_layer, (tf.keras.layers.Activation, tf.keras.layers.ReLU, tf.keras.layers.LeakyReLU, tf.keras.layers.ELU)):
+                    captured.append(Operation(_layer.name, "elementwise", (shape(inputs),), shape(output), inputs.dtype.size))
+                elif isinstance(_layer, tf.keras.layers.Softmax):
+                    captured.append(Operation(_layer.name, "softmax", (shape(inputs),), shape(output), inputs.dtype.size))
+                elif isinstance(_layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.LayerNormalization)):
+                    kind = "batchnorm" if isinstance(_layer, tf.keras.layers.BatchNormalization) else "layernorm"
+                    attrs = {}
+                    if hasattr(_layer, 'gamma') and _layer.gamma is not None:
+                        attrs["parameter_bytes"] = int(_layer.count_params()) * inputs.dtype.size
+                        attrs["parameter_id"] = id(_layer.gamma)
+                    x = shape(inputs)
+                    y = shape(output)
+                    if len(x) == 4:
+                        in_shape = (x[0], x[3], x[1], x[2])
+                        out_shape = (y[0], y[3], y[1], y[2])
+                    else:
+                        in_shape = x
+                        out_shape = y
+                    captured.append(Operation(_layer.name, kind, (in_shape,), out_shape, inputs.dtype.size, attrs))
+                elif isinstance(_layer, (tf.keras.layers.MaxPooling2D, tf.keras.layers.AveragePooling2D)):
+                    x = shape(inputs)
+                    y = shape(output)
+                    captured.append(
+                        Operation(
+                            _layer.name,
+                            "pooling",
+                            ((x[0], x[3], x[1], x[2]),),
+                            (y[0], y[3], y[1], y[2]),
+                            inputs.dtype.size,
+                            {"kernel_size": tuple(_layer.pool_size)},
+                        )
+                    )
+                elif isinstance(_layer, tf.keras.layers.GlobalAveragePooling2D):
+                    x = shape(inputs)
+                    y = shape(output)
+                    captured.append(
+                        Operation(
+                            _layer.name,
+                            "pooling",
+                            ((x[0], x[3], x[1], x[2]),),
+                            y,
+                            inputs.dtype.size,
+                            {"kernel_size": (x[1], x[2])},
                         )
                     )
                 return output

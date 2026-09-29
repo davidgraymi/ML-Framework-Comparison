@@ -5,7 +5,7 @@ from statistics import median
 from time import perf_counter_ns
 from typing import Any
 
-from ..operations import Operation
+from ..operations import Operation, numel
 from ..profiler import Measurement
 from .base import FrameworkAdapter
 
@@ -21,6 +21,7 @@ class JaxAdapter(FrameworkAdapter):
         except ImportError as error:  # pragma: no cover - optional package
             raise ImportError("Install neural-cost[jax] to use JaxAdapter") from error
         closed = jax.make_jaxpr(model)(*example_inputs)
+        parameters = {id(var) for var in closed.jaxpr.invars[1:]}
         operations: list[Operation] = []
         for index, equation in enumerate(closed.jaxpr.eqns):
             primitive = equation.primitive.name
@@ -33,8 +34,23 @@ class JaxAdapter(FrameworkAdapter):
             dtype_bytes = int(out_avals[0].dtype.itemsize)
             if primitive == "dot_general" and len(input_shapes) == 2:
                 if len(input_shapes[0]) >= 2 and len(input_shapes[1]) == 2:
-                    operations.append(Operation(f"dot_{index}", "matmul", input_shapes, output_shape, dtype_bytes))
-            elif primitive in {"add", "mul", "max", "exp", "tanh", "logistic"}:
+                    attrs = {}
+                    if id(equation.invars[1]) in parameters:
+                        attrs = {
+                            "parameter_bytes": numel(input_shapes[1]) * dtype_bytes,
+                            "parameter_id": id(equation.invars[1]),
+                        }
+                    operations.append(Operation(f"dot_{index}", "matmul", input_shapes, output_shape, dtype_bytes, attrs))
+            elif primitive == "conv_general_dilated":
+                if len(input_shapes) == 2 and len(input_shapes[0]) == 4 and len(input_shapes[1]) == 4:
+                    attrs = {}
+                    if id(equation.invars[1]) in parameters:
+                        attrs = {
+                            "parameter_bytes": numel(input_shapes[1]) * dtype_bytes,
+                            "parameter_id": id(equation.invars[1]),
+                        }
+                    operations.append(Operation(f"conv_{index}", "conv2d", input_shapes, output_shape, dtype_bytes, attrs))
+            elif primitive in {"add", "mul", "max", "exp", "tanh", "logistic", "sub", "neg", "sin", "cos", "rsqrt", "integer_pow", "abs", "log", "sqrt", "reduce_sum", "reduce_max"}:
                 operations.append(Operation(f"{primitive}_{index}", "elementwise", input_shapes, output_shape, dtype_bytes))
         return operations
 

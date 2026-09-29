@@ -85,5 +85,9 @@ class TestOperationsExpanded(unittest.TestCase):
         self.assertEqual(est.read_bytes, 40) # (10 + 10) * 2
         self.assertEqual(est.write_bytes, 20) # 10 * 2
         
+    def test_invalid_kind_raises(self):
+        with self.assertRaisesRegex(ValueError, "unsupported operation kind"):
+            Operation("bad", "bogus", ((10,),), (10,))
+        
 if __name__ == '__main__':
     unittest.main()

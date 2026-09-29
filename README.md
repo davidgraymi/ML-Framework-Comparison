@@ -129,7 +129,10 @@ The end-to-end tests run a common small matrix-multiply workload for each
 installed framework and automatically skip missing optional dependencies:
 
 ```bash
-PYTHONPATH=src python -m unittest tests/test_adapters_e2e.py -v
+uv run --extra dev python -m pytest tests/ -v
+# or:
+pip install -e '.[dev,torch,jax,tensorflow]'
+python -m pytest tests/ -v
 ```
 
 For a human-readable comparison using a larger shared workload, install the
@@ -141,10 +144,10 @@ pip install -e '.[torch,jax,tensorflow]'
 python examples/compare_frameworks.py
 ```
 
-Explicit overrides are available if you want to provide known hardware specs:
+Explicit overrides are optional if you want to provide known hardware specs (hardware is auto-detected by default):
 
 ```bash
-# Override with known hardware specs:
+# Optional overrides with known hardware specs:
 python examples/compare_frameworks.py --peak-flops 312e12 --memory-bandwidth 1.6e12
 ```
 
@@ -155,6 +158,15 @@ to return portable `Operation` records. The adapter can also override
 `benchmark` to synchronize an accelerator or collect framework-specific memory
 statistics. This contract keeps model extraction separate from the framework-
 independent estimator and analyzer.
+
+## CLI
+
+```bash
+# After pip install:
+neural-cost-compare
+# Or with overrides:
+neural-cost-compare --peak-flops 3.6e12 --memory-bandwidth 100e9
+```
 
 ## Current scope
 

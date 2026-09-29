@@ -5,7 +5,7 @@ frameworks can construct them directly without depending on any ML runtime.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, get_args
 
 OperationKind = Literal[
     "matmul",
@@ -36,6 +36,12 @@ class Operation:
     attrs: dict[str, int | float | tuple[int, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        valid_kinds = get_args(OperationKind)
+        if self.kind not in valid_kinds:
+            raise ValueError(
+                f"unsupported operation kind {self.kind!r}; "
+                f"must be one of {valid_kinds}"
+            )
         if self.dtype_bytes <= 0:
             raise ValueError("dtype_bytes must be positive")
         for shape in (*self.inputs, self.output):

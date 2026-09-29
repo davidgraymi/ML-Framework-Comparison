@@ -1,5 +1,6 @@
 """Framework-neutral neural-network compute and memory cost analysis."""
 
+from .adapters import available_adapters, get_adapter
 from .analysis import (
     GapAnalysis,
     MemoryGapAnalysis,
@@ -31,10 +32,12 @@ __all__ = [
     "analyze_gap",
     "analyze_memory_gap",
     "analyze_model_gap",
+    "available_adapters",
     "benchmark",
     "detect_hardware",
     "estimate_memory",
     "estimate_model",
     "estimate_operations",
+    "get_adapter",
     "profile_model",
 ]
