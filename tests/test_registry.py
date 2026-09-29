@@ -25,11 +25,13 @@ def test_get_adapter_jax():
 
 
 def test_get_adapter_tensorflow():
+    pytest.importorskip("tensorflow")
     adapter = get_adapter("tensorflow")
     assert isinstance(adapter, TensorFlowAdapter)
 
 
 def test_get_adapter_tf_alias():
+    pytest.importorskip("tensorflow")
     adapter = get_adapter("tf")
     assert isinstance(adapter, TensorFlowAdapter)
 

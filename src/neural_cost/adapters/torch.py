@@ -29,12 +29,14 @@ class TorchAdapter(FrameworkAdapter):
 
         def hook(name: str, module: Any):
             def record(_module: Any, inputs: tuple[Any, ...], output: Any) -> None:
-                if not inputs or not isinstance(output, torch.Tensor):
+                if not inputs:
                     return
                 source = inputs[0]
                 if not isinstance(source, torch.Tensor):
                     return
                 if isinstance(module, torch.nn.Linear):
+                    if not isinstance(output, torch.Tensor):
+                        return
                     captured.append(
                         Operation(
                             name, "linear", (tuple(source.shape), tuple(module.weight.T.shape)),
@@ -42,14 +44,16 @@ class TorchAdapter(FrameworkAdapter):
                             dtype_bytes(source),
                             {
                                 "parameter_bytes": sum(
-                                    parameter.numel() * parameter.element_size()
-                                    for parameter in module.parameters(recurse=False)
+                                    p.numel() * p.element_size()
+                                    for p in module.parameters(recurse=False)
                                 ),
                                 "parameter_id": id(module.weight),
                             },
                         )
                     )
                 elif isinstance(module, torch.nn.Conv2d):
+                    if not isinstance(output, torch.Tensor):
+                        return
                     captured.append(
                         Operation(
                             name, "conv2d", (tuple(source.shape), tuple(module.weight.shape)),
@@ -57,18 +61,110 @@ class TorchAdapter(FrameworkAdapter):
                             dtype_bytes(source),
                             {
                                 "parameter_bytes": sum(
-                                    parameter.numel() * parameter.element_size()
-                                    for parameter in module.parameters(recurse=False)
+                                    p.numel() * p.element_size()
+                                    for p in module.parameters(recurse=False)
                                 ),
                                 "parameter_id": id(module.weight),
                             },
                         )
                     )
+                elif isinstance(module, torch.nn.Embedding):
+                    if not isinstance(output, torch.Tensor):
+                        return
+                    captured.append(
+                        Operation(
+                            name, "embedding", (tuple(source.shape),),
+                            tuple(output.shape),
+                            dtype_bytes(module.weight),
+                            {
+                                "parameter_bytes": module.weight.numel() * module.weight.element_size(),
+                                "parameter_id": id(module.weight),
+                            },
+                        )
+                    )
+                elif isinstance(module, (torch.nn.RNN, torch.nn.GRU, torch.nn.LSTM)):
+                    # Unroll as input×hidden + hidden×hidden linears per layer per direction.
+                    if not isinstance(output, (tuple, list)):
+                        return
+                    directions = 2 if module.bidirectional else 1
+                    gates = 4 if isinstance(module, torch.nn.LSTM) else (3 if isinstance(module, torch.nn.GRU) else 1)
+                    batch_seq = source.shape[0] * source.shape[1] if source.dim() >= 2 else source.shape[0]
+                    in_size = source.shape[-1]
+                    h = module.hidden_size
+                    for layer in range(module.num_layers):
+                        layer_in = in_size if layer == 0 else h * directions
+                        # Input → hidden projection
+                        captured.append(Operation(
+                            f"{name}.layer{layer}.ih", "linear",
+                            ((batch_seq, layer_in), (layer_in, gates * h)),
+                            (batch_seq, gates * h),
+                            source.element_size(),
+                            {
+                                "parameter_bytes": layer_in * gates * h * source.element_size(),
+                                "parameter_id": id(getattr(module, f"weight_ih_l{layer}")),
+                            },
+                        ))
+                        # Hidden → hidden projection
+                        captured.append(Operation(
+                            f"{name}.layer{layer}.hh", "linear",
+                            ((batch_seq, h), (h, gates * h)),
+                            (batch_seq, gates * h),
+                            source.element_size(),
+                            {
+                                "parameter_bytes": h * gates * h * source.element_size(),
+                                "parameter_id": id(getattr(module, f"weight_hh_l{layer}")),
+                            },
+                        ))
+                elif isinstance(module, torch.nn.MultiheadAttention):
+                    if not isinstance(output, (tuple, list, torch.Tensor)):
+                        return
+                    out_tensor = output[0] if isinstance(output, (tuple, list)) else output
+                    if not isinstance(out_tensor, torch.Tensor):
+                        return
+                    embed_dim = module.embed_dim
+                    num_heads = module.num_heads
+                    seq_len = source.shape[0] if source.dim() >= 2 else 1
+                    batch = source.shape[1] if source.dim() >= 3 else 1
+                    captured.append(Operation(
+                        name, "attention",
+                        (tuple(source.shape),),
+                        (seq_len, batch, embed_dim),
+                        dtype_bytes(source),
+                        {
+                            "num_heads": num_heads,
+                            "seq_len": seq_len,
+                            "parameter_bytes": sum(
+                                p.numel() * p.element_size()
+                                for p in module.parameters(recurse=False)
+                            ),
+                            "parameter_id": id(module.in_proj_weight) if module.in_proj_weight is not None else id(module),
+                        },
+                    ))
+                elif isinstance(module, (torch.nn.LayerNorm, torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
+                    if not isinstance(output, torch.Tensor):
+                        return
+                    kind = "layernorm" if isinstance(module, torch.nn.LayerNorm) else "batchnorm"
+                    attrs: dict[str, int | float | tuple[int, ...]] = {}
+                    if hasattr(module, "weight") and module.weight is not None:
+                        attrs["parameter_bytes"] = sum(
+                            p.numel() * p.element_size()
+                            for p in module.parameters(recurse=False)
+                        )
+                        attrs["parameter_id"] = id(module.weight)
+                    captured.append(Operation(name, kind, (tuple(source.shape),), tuple(output.shape),
+                                              dtype_bytes(source), attrs))
             return record
 
+        _TRACKED = (
+            torch.nn.Linear, torch.nn.Conv2d, torch.nn.Embedding,
+            torch.nn.RNN, torch.nn.GRU, torch.nn.LSTM,
+            torch.nn.MultiheadAttention,
+            torch.nn.LayerNorm, torch.nn.BatchNorm1d, torch.nn.BatchNorm2d,
+        )
         for name, module in model.named_modules():
-            if isinstance(module, (torch.nn.Linear, torch.nn.Conv2d)):
+            if isinstance(module, _TRACKED):
                 hooks.append(module.register_forward_hook(hook(name or module.__class__.__name__, module)))
+
         was_training = model.training
         try:
             model.eval()

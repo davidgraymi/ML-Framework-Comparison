@@ -39,3 +39,9 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.10.9",
+    "seaborn>=0.13.2",
+]

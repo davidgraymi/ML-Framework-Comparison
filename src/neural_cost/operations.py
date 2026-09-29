@@ -17,6 +17,8 @@ OperationKind = Literal[
     "layernorm",
     "batchnorm",
     "pooling",
+    "embedding",
+    "attention",
 ]
 
 
