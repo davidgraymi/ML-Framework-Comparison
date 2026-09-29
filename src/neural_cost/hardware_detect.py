@@ -1,0 +1,281 @@
+"""Automatic hardware detection and memory-bandwidth measurement.
+
+Provides :func:`detect_hardware` which returns a :class:`~.hardware.HardwareSpec`
+populated with values derived from:
+
+1. A STREAM-style NumPy copy benchmark (always available) to measure
+   *effective* memory bandwidth.
+2. ``system_profiler SPHardwareDataType`` on macOS to identify Apple Silicon
+   chips and look up their published peak FP32 compute throughput.
+3. ``nvidia-smi`` on systems with NVIDIA GPUs (CUDA peak FLOPs).
+4. Sensible CPU-level fallbacks (logical cores × clock × scalar FMA factor).
+
+All values are best-effort estimates for roofline purposes.  Pass explicit
+``--peak-flops`` / ``--memory-bandwidth`` arguments to the comparison script
+to override them with manufacturer data for your exact SKU.
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from dataclasses import dataclass
+
+from .hardware import HardwareSpec
+
+# ---------------------------------------------------------------------------
+# Apple Silicon chip table
+# Published single-chip FP32 peak TFLOP/s and memory bandwidth (GB/s).
+# Sources: Apple Developer documentation and AnandTech / Chips and Cheese.
+# ---------------------------------------------------------------------------
+_APPLE_CHIP_TABLE: dict[str, tuple[float, float]] = {
+    # (peak_tflops_fp32, bandwidth_gb_s)
+    "M1":       (2.6,   68.25),
+    "M1 Pro":   (5.2,  200.0),
+    "M1 Max":   (10.4, 400.0),
+    "M1 Ultra": (21.2, 800.0),
+    "M2":       (3.6,  100.0),
+    "M2 Pro":   (6.8,  200.0),
+    "M2 Max":   (13.6, 400.0),
+    "M2 Ultra": (27.2, 800.0),
+    "M3":       (3.6,  100.0),
+    "M3 Pro":   (7.4,  150.0),
+    "M3 Max":   (14.2, 300.0),
+    "M4":       (4.6,  120.0),
+    "M4 Pro":   (9.2,  273.0),
+    "M4 Max":   (18.4, 546.0),
+}
+
+
+@dataclass
+class DetectionResult:
+    """Raw values collected during hardware probing."""
+
+    chip_name: str | None
+    logical_cores: int
+    clock_hz: float | None
+    measured_bandwidth_gb_s: float
+    peak_flops: float
+    memory_bandwidth: float
+    source: str  # human-readable description of where values came from
+
+
+# ---------------------------------------------------------------------------
+# Bandwidth measurement
+# ---------------------------------------------------------------------------
+
+def _measure_bandwidth_gb_s(size_mb: int = 256, repeats: int = 5) -> float:
+    """Return effective memory bandwidth in GB/s via a NumPy array copy.
+
+    Uses a *STREAM Triad*-style kernel (c = a + scalar * b) over a buffer
+    large enough to exceed typical L3 caches, measured with
+    :func:`time.perf_counter_ns`.
+    """
+    import time
+
+    import numpy as np
+
+    n = (size_mb * 1024 * 1024) // 8  # float64 elements
+    a = np.random.rand(n).astype(np.float64)
+    b = np.random.rand(n).astype(np.float64)
+    c = np.empty_like(a)
+    scalar = 3.0
+
+    # Warmup
+    np.add(a, b, out=c)
+    np.add(a, b, out=c)
+
+    samples: list[float] = []
+    bytes_moved = 3 * a.nbytes  # read a, read b, write c
+
+    for _ in range(repeats):
+        t0 = time.perf_counter_ns()
+        np.add(a * scalar, b, out=c)
+        elapsed = (time.perf_counter_ns() - t0) / 1e9
+        samples.append(bytes_moved / elapsed / 1e9)
+
+    samples.sort()
+    # Use the median of the top half to reduce OS scheduling noise.
+    top_half = samples[len(samples) // 2:]
+    return sum(top_half) / len(top_half)
+
+
+# ---------------------------------------------------------------------------
+# Platform probes
+# ---------------------------------------------------------------------------
+
+def _probe_apple_silicon() -> tuple[str | None, float | None, float | None]:
+    """Return (chip_name, peak_tflops, bandwidth_gb_s) from system_profiler."""
+    if not shutil.which("system_profiler"):
+        return None, None, None
+    try:
+        out = subprocess.check_output(
+            ["system_profiler", "SPHardwareDataType"],
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None, None, None
+
+    chip_match = re.search(r"Chip:\s+(Apple[^\n\r]+)", out)
+    if not chip_match:
+        return None, None, None
+
+    chip_raw = chip_match.group(1).strip()
+    # Table keys are bare names like "M3 Pro"; chip_raw includes "Apple " prefix.
+    chip_bare = chip_raw.removeprefix("Apple ").strip()
+    matched_key = None
+    for key in sorted(_APPLE_CHIP_TABLE, key=len, reverse=True):
+        if chip_bare.startswith(key):
+            matched_key = key
+            break
+
+    if matched_key is None:
+        return chip_raw, None, None
+
+    tflops, bw = _APPLE_CHIP_TABLE[matched_key]
+    return chip_raw, tflops * 1e12, bw * 1e9
+
+
+def _probe_nvidia() -> tuple[float | None, float | None]:
+    """Return (peak_fp32_flops, bandwidth_bytes_s) from nvidia-smi if present."""
+    if not shutil.which("nvidia-smi"):
+        return None, None
+    try:
+        # Compute clock (MHz) and memory bandwidth (GB/s) for device 0.
+        clock_out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=clocks.max.sm,memory.total,clocks.max.mem",
+             "--format=csv,noheader,nounits"],
+            text=True, timeout=10,
+        )
+        parts = [p.strip() for p in clock_out.strip().split(",")]
+        if len(parts) < 3:
+            return None, None
+        sm_mhz = float(parts[0])
+        mem_mhz = float(parts[2])
+        # Rough FP32: SM_clock × 2 FMA × 128 CUDA cores / SM × (SM count guess 40)
+        # Better: read cuda_cores directly — use a conservative scalar estimate.
+        peak_flops = sm_mhz * 1e6 * 2 * 5120  # rough assumption
+        # GDDR6/HBM: bandwidth ≈ mem_clock × bus_width / 8.
+        # nvidia-smi doesn't expose bus width easily; use a 256-bit guess.
+        bandwidth = mem_mhz * 1e6 * 2 * 256 / 8
+        return peak_flops, bandwidth
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return None, None
+
+
+def _probe_cpu_flops() -> tuple[int, float | None]:
+    """Return (logical_core_count, clock_hz_or_None) from sysctl / /proc/cpuinfo."""
+    import os
+
+    cores = os.cpu_count() or 1
+    clock_hz: float | None = None
+
+    if shutil.which("sysctl"):
+        # Try keys in priority order; Apple Silicon uses perflevel0 (P-core).
+        for key in (
+            "hw.cpufrequency_max",               # Intel macOS
+            "hw.perflevel0.cpufrequency_max",    # Apple Silicon P-core
+            "hw.cpufrequency",                   # some Linux/BSD
+        ):
+            try:
+                out = subprocess.check_output(
+                    ["sysctl", "-n", key], text=True, timeout=5,
+                    stderr=subprocess.DEVNULL,
+                )
+                val = out.strip()
+                if val:
+                    clock_hz = float(val)
+                    break
+            except (subprocess.SubprocessError, OSError, ValueError):
+                continue
+
+    # Linux /proc/cpuinfo fallback
+    if clock_hz is None:
+        try:
+            with open("/proc/cpuinfo") as fh:
+                for line in fh:
+                    if "cpu MHz" in line:
+                        clock_hz = float(line.split(":")[1].strip()) * 1e6
+                        break
+        except OSError:
+            pass
+
+    return cores, clock_hz
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, DetectionResult]:
+    """Probe this machine and return a :class:`HardwareSpec` for roofline analysis.
+
+    Parameters
+    ----------
+    bandwidth_benchmark_mb:
+        Working-set size in MiB for the NumPy bandwidth benchmark.  Increase
+        for machines with very large L3 caches (e.g. 512 for server CPUs).
+
+    Returns
+    -------
+    spec:
+        :class:`HardwareSpec` suitable for passing to :func:`analyze_gap`.
+    result:
+        :class:`DetectionResult` with all raw probed values for display.
+    """
+    measured_bw = _measure_bandwidth_gb_s(size_mb=bandwidth_benchmark_mb)
+
+    # --- Apple Silicon ---
+    chip_name, apple_peak_flops, apple_bw = _probe_apple_silicon()
+    if apple_peak_flops is not None:
+        peak_flops = apple_peak_flops
+        # Prefer manufacturer bandwidth; measured value is a lower bound.
+        memory_bandwidth = max(apple_bw or 0.0, measured_bw * 1e9)
+        source = f"Apple Silicon table ({chip_name}) + NumPy STREAM triad"
+        cores, clock_hz = _probe_cpu_flops()
+        return (
+            HardwareSpec(chip_name or "Apple Silicon", peak_flops, memory_bandwidth),
+            DetectionResult(
+                chip_name, cores, clock_hz,
+                measured_bw, peak_flops, memory_bandwidth, source,
+            ),
+        )
+
+    # --- NVIDIA GPU ---
+    nvidia_flops, nvidia_bw = _probe_nvidia()
+    if nvidia_flops is not None and nvidia_bw is not None:
+        memory_bandwidth = max(nvidia_bw, measured_bw * 1e9)
+        source = "nvidia-smi (approximate) + NumPy STREAM triad"
+        cores, clock_hz = _probe_cpu_flops()
+        return (
+            HardwareSpec("NVIDIA GPU", nvidia_flops, memory_bandwidth),
+            DetectionResult(
+                None, cores, clock_hz,
+                measured_bw, nvidia_flops, memory_bandwidth, source,
+            ),
+        )
+
+    # --- CPU fallback ---
+    cores, clock_hz = _probe_cpu_flops()
+    if clock_hz:
+        # scalar FP32 FMA = 2 FLOP/cycle/core; use conservative 2× factor
+        peak_flops = cores * clock_hz * 2.0
+    else:
+        # Very conservative: assume 2 GFLOP/s per core at unknown speed
+        peak_flops = cores * 2e9
+
+    memory_bandwidth = measured_bw * 1e9
+    source = (
+        f"CPU estimate ({cores} cores"
+        + (f" @ {clock_hz / 1e9:.2f} GHz" if clock_hz else "")
+        + ") + NumPy STREAM triad"
+    )
+    return (
+        HardwareSpec("CPU", peak_flops, memory_bandwidth),
+        DetectionResult(
+            chip_name, cores, clock_hz,
+            measured_bw, peak_flops, memory_bandwidth, source,
+        ),
+    )
