@@ -31,7 +31,7 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Test core package
-        run: python -m unittest tests.test_estimate tests.test_profiler -v
+        run: python -m unittest tests.test_estimate tests.test_memory tests.test_profiler -v
 
   framework-e2e:
     name: ${{ matrix.framework }} adapter E2E

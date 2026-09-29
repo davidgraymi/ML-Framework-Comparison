@@ -8,7 +8,7 @@ corresponding extra is installed.  CI can exercise all of them with
 import importlib.util
 import unittest
 
-from neural_cost import estimate_model
+from neural_cost import estimate_model, profile_model
 from neural_cost.adapters import JaxAdapter, TensorFlowAdapter, TorchAdapter
 
 
@@ -22,10 +22,12 @@ class TorchAdapterE2ETest(unittest.TestCase):
         adapter = TorchAdapter()
 
         estimate = estimate_model(model, inputs, adapter)
+        profile = profile_model(model, inputs, adapter)
         measurement = adapter.benchmark(model, *inputs, warmup=1, repeats=2)
 
         self.assertEqual(estimate.operations, 1)
         self.assertEqual(estimate.flops, 128)
+        self.assertEqual(profile.memory.parameter_bytes, 128)
         self.assertGreater(measurement.median_seconds, 0)
 
 
@@ -40,10 +42,12 @@ class JaxAdapterE2ETest(unittest.TestCase):
         inputs = (jnp.ones((2, 8)), jnp.ones((8, 4)))
         adapter = JaxAdapter()
         estimate = estimate_model(model, inputs, adapter)
+        profile = profile_model(model, inputs, adapter)
         measurement = adapter.benchmark(model, *inputs, warmup=1, repeats=2)
 
         self.assertEqual(estimate.operations, 1)
         self.assertEqual(estimate.flops, 128)
+        self.assertEqual(profile.memory.parameter_bytes, 0)
         self.assertGreater(measurement.median_seconds, 0)
 
 
@@ -57,8 +61,10 @@ class TensorFlowAdapterE2ETest(unittest.TestCase):
         adapter = TensorFlowAdapter()
 
         estimate = estimate_model(model, inputs, adapter)
+        profile = profile_model(model, inputs, adapter)
         measurement = adapter.benchmark(model, *inputs, warmup=1, repeats=2)
 
         self.assertEqual(estimate.operations, 1)
         self.assertEqual(estimate.flops, 128)
+        self.assertEqual(profile.memory.parameter_bytes, 128)
         self.assertGreater(measurement.median_seconds, 0)

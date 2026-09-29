@@ -15,10 +15,23 @@ class Measurement:
     samples_seconds: tuple[float, ...]
     peak_memory_bytes: int | None = None
     device: str | None = None
+    allocated_memory_bytes: int | None = None
+    reserved_memory_bytes: int | None = None
+    trace_event_count: int | None = None
+    trace_device_time_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.median_seconds <= 0:
             raise ValueError("median_seconds must be positive")
+        for name, value in (
+            ("peak_memory_bytes", self.peak_memory_bytes),
+            ("allocated_memory_bytes", self.allocated_memory_bytes),
+            ("reserved_memory_bytes", self.reserved_memory_bytes),
+            ("trace_event_count", self.trace_event_count),
+            ("trace_device_time_seconds", self.trace_device_time_seconds),
+        ):
+            if value is not None and value < 0:
+                raise ValueError(f"{name} must be non-negative")
 
 
 def benchmark(

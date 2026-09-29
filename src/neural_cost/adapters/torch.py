@@ -38,14 +38,30 @@ class TorchAdapter(FrameworkAdapter):
                     captured.append(
                         Operation(
                             name, "linear", (tuple(source.shape), tuple(module.weight.T.shape)),
-                            tuple(output.shape), dtype_bytes(source),
+                            tuple(output.shape),
+                            dtype_bytes(source),
+                            {
+                                "parameter_bytes": sum(
+                                    parameter.numel() * parameter.element_size()
+                                    for parameter in module.parameters(recurse=False)
+                                ),
+                                "parameter_id": id(module.weight),
+                            },
                         )
                     )
                 elif isinstance(module, torch.nn.Conv2d):
                     captured.append(
                         Operation(
                             name, "conv2d", (tuple(source.shape), tuple(module.weight.shape)),
-                            tuple(output.shape), dtype_bytes(source),
+                            tuple(output.shape),
+                            dtype_bytes(source),
+                            {
+                                "parameter_bytes": sum(
+                                    parameter.numel() * parameter.element_size()
+                                    for parameter in module.parameters(recurse=False)
+                                ),
+                                "parameter_id": id(module.weight),
+                            },
                         )
                     )
             return record
@@ -67,10 +83,24 @@ class TorchAdapter(FrameworkAdapter):
     def benchmark(
         self, function: Any, *args: Any, warmup: int = 3, repeats: int = 10, **kwargs: Any
     ) -> Measurement:
+        """Benchmark execution and capture CUDA allocator statistics when present."""
+        return self.trace(function, *args, warmup=warmup, repeats=repeats, **kwargs)
+
+    def trace(
+        self, function: Any, *args: Any, warmup: int = 3, repeats: int = 10, **kwargs: Any
+    ) -> Measurement:
+        """Profile PyTorch events and CUDA memory for a representative workload.
+
+        The trace is aggregated over ``repeats`` iterations.  CUDA timings are
+        synchronized before every sample, and CUDA allocator counters are
+        reported separately from the static tensor-memory estimate.
+        """
         try:
             import torch
         except ImportError as error:  # pragma: no cover
             raise ImportError("Install neural-cost[torch] to use TorchAdapter") from error
+        if warmup < 0 or repeats < 1:
+            raise ValueError("warmup must be non-negative and repeats must be at least one")
         device = next((arg.device for arg in args if isinstance(arg, torch.Tensor)), None)
         is_cuda = device is not None and device.type == "cuda"
         if is_cuda:
@@ -79,12 +109,34 @@ class TorchAdapter(FrameworkAdapter):
             function(*args, **kwargs)
         if is_cuda:
             torch.cuda.synchronize(device)
-        samples = []
-        for _ in range(repeats):
-            start = perf_counter_ns()
-            function(*args, **kwargs)
-            if is_cuda:
-                torch.cuda.synchronize(device)
-            samples.append((perf_counter_ns() - start) / 1_000_000_000)
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if is_cuda:
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        samples: list[float] = []
+        with torch.profiler.profile(activities=activities, profile_memory=is_cuda) as trace:
+            for _ in range(repeats):
+                start = perf_counter_ns()
+                function(*args, **kwargs)
+                if is_cuda:
+                    torch.cuda.synchronize(device)
+                samples.append((perf_counter_ns() - start) / 1_000_000_000)
         peak = torch.cuda.max_memory_allocated(device) if is_cuda else None
-        return Measurement(median(samples), tuple(samples), peak, str(device) if device else "cpu")
+        allocated = torch.cuda.memory_allocated(device) if is_cuda else None
+        reserved = torch.cuda.memory_reserved(device) if is_cuda else None
+        events = trace.events()
+        if is_cuda:
+            device_time = sum(event.cuda_time_total for event in events) / 1_000_000
+            event_count = sum(event.cuda_time_total > 0 for event in events)
+        else:
+            device_time = sum(event.cpu_time_total for event in events) / 1_000_000
+            event_count = len(events)
+        return Measurement(
+            median(samples),
+            tuple(samples),
+            peak,
+            str(device) if device else "cpu",
+            allocated,
+            reserved,
+            event_count,
+            device_time,
+        )

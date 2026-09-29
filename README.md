@@ -14,6 +14,24 @@ pip install -e '.[dev]'
 pip install -e '.[torch]'
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    Model["Model / function\nexample inputs"]
+    Adapters["PyTorch · JAX · TensorFlow\nCustom FrameworkAdapter"]
+    Operations["Portable Operation records"]
+    Static["Static profile\nFLOPs · traffic · parameter bytes\nactivation bounds"]
+    Dynamic["Dynamic tracer\nruntime · allocator telemetry\nPyTorch profiler events"]
+    Hardware["HardwareSpec\npeak FLOP/s · bandwidth"]
+    Gap["Gap analysis\nroofline efficiency · memory overhead\nfindings"]
+
+    Model --> Adapters
+    Adapters --> Operations --> Static --> Gap
+    Adapters --> Dynamic --> Gap
+    Hardware --> Gap
+```
+
 ## Analyze portable operations
 
 ```python
@@ -33,6 +51,27 @@ and a compute/bandwidth lower bound. The measured gap is expected: it captures
 launch overhead, synchronization, framework behavior, unfused intermediates,
 workspaces, caches, and imperfect kernel utilization.
 
+## Profile static memory and training state
+
+`profile_model` combines FLOP/traffic estimation with parameter and activation
+storage bounds. For training, it also models a parameter-sized gradient buffer
+and configurable optimizer state; use `optimizer_state_multiplier=2` for
+Adam's two moment buffers.
+
+```python
+from neural_cost import profile_model
+from neural_cost.adapters import TorchAdapter
+
+profile = profile_model(
+    model, inputs, TorchAdapter(), training=True, optimizer_state_multiplier=2
+)
+print(profile.memory.training_minimum_bytes)
+```
+
+The minimum activation bound is the largest output tensor. The conservative
+bound assumes all forward outputs remain live, so real allocator telemetry is
+the source of truth for physical VRAM use.
+
 ## Framework adapters
 
 ```python
@@ -47,7 +86,10 @@ measurement = TorchAdapter().benchmark(model, *inputs)
 ```
 
 `TorchAdapter` captures `Linear` and `Conv2d` modules and synchronizes CUDA
-benchmarks. `TensorFlowAdapter` captures Keras `Dense` and `Conv2D` calls.
+benchmarks. Its `trace` method uses `torch.profiler` and returns aggregate
+profiler-event and CUDA allocator statistics. `TensorFlowAdapter` captures
+Keras `Dense` and `Conv2D` calls and returns supported TensorFlow GPU allocator
+statistics.
 `JaxAdapter` traces conventional `dot_general` and common elementwise jaxpr
 primitives and waits for asynchronous device work during benchmarks. All
 adapters are optional imports:
@@ -86,8 +128,9 @@ independent estimator and analyzer.
 
 ## Current scope
 
-This first release models inference with concrete shapes and common dense,
-matrix-multiply, convolution, and elementwise operations. Training-mode
-backpropagation, activation checkpointing, distributed communication, dynamic
-shapes, operator fusion details, and complete graph coverage are deliberately
+The package profiles concrete-shape dense, matrix-multiply, convolution, and
+common elementwise inference graphs. Static training storage includes gradients
+and optimizer state but does not yet trace a full backward graph. Activation
+checkpointing, distributed communication, dynamic shapes, fusion details,
+complete graph coverage, and non-PyTorch kernel-level traces remain deliberate
 next increments rather than silently approximated.
