@@ -49,10 +49,31 @@ measurement = TorchAdapter().benchmark(model, *inputs)
 `TorchAdapter` captures `Linear` and `Conv2d` modules and synchronizes CUDA
 benchmarks. `TensorFlowAdapter` captures Keras `Dense` and `Conv2D` calls.
 `JaxAdapter` traces conventional `dot_general` and common elementwise jaxpr
-primitives. All adapters are optional imports:
+primitives and waits for asynchronous device work during benchmarks. All
+adapters are optional imports:
 
 ```python
 from neural_cost.adapters import JaxAdapter, TensorFlowAdapter, TorchAdapter
+```
+
+## Compare framework results
+
+The end-to-end tests run a common small matrix-multiply workload for each
+installed framework and automatically skip missing optional dependencies:
+
+```bash
+PYTHONPATH=src python -m unittest tests/test_adapters_e2e.py -v
+```
+
+For a human-readable comparison using a larger shared workload, install the
+frameworks you want to compare and run the example. Supply the peak compute
+and bandwidth figures for the device in use to make roofline efficiency
+meaningful.
+
+```bash
+pip install -e '.[torch,jax,tensorflow]'
+PYTHONPATH=src python examples/compare_frameworks.py \
+  --peak-flops 312e12 --memory-bandwidth 1.6e12
 ```
 
 ## Custom frameworks

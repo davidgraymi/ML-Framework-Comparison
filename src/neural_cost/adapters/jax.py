@@ -1,9 +1,12 @@
 """JAX adapter for common jaxpr dot and elementwise primitives."""
 
 from collections.abc import Sequence
+from statistics import median
+from time import perf_counter_ns
 from typing import Any
 
 from ..operations import Operation
+from ..profiler import Measurement
 from .base import FrameworkAdapter
 
 
@@ -34,3 +37,29 @@ class JaxAdapter(FrameworkAdapter):
             elif primitive in {"add", "mul", "max", "exp", "tanh", "logistic"}:
                 operations.append(Operation(f"{primitive}_{index}", "elementwise", input_shapes, output_shape, dtype_bytes))
         return operations
+
+    def benchmark(
+        self, function: Any, *args: Any, warmup: int = 3, repeats: int = 10, **kwargs: Any
+    ) -> Measurement:
+        """Benchmark a JAX function while waiting for dispatched device work."""
+        try:
+            import jax
+        except ImportError as error:  # pragma: no cover - optional package
+            raise ImportError("Install neural-cost[jax] to use JaxAdapter") from error
+
+        def wait(value: Any) -> None:
+            for leaf in jax.tree.leaves(value):
+                if hasattr(leaf, "block_until_ready"):
+                    leaf.block_until_ready()
+
+        if warmup < 0 or repeats < 1:
+            raise ValueError("warmup must be non-negative and repeats must be at least one")
+        for _ in range(warmup):
+            wait(function(*args, **kwargs))
+        samples = []
+        for _ in range(repeats):
+            start = perf_counter_ns()
+            wait(function(*args, **kwargs))
+            samples.append((perf_counter_ns() - start) / 1_000_000_000)
+        device = str(args[0].device) if args and hasattr(args[0], "device") else None
+        return Measurement(median(samples), tuple(samples), device=device)
