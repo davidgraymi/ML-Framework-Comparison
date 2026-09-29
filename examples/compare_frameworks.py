@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from neural_cost import HardwareSpec, analyze_gap, estimate_model
 from neural_cost.adapters import JaxAdapter, TensorFlowAdapter, TorchAdapter

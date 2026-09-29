@@ -23,13 +23,17 @@ class GapAnalysis:
         """Return a compact, terminal-friendly performance-gap report."""
         lines = [
             "Neural cost gap analysis",
-            f"  bound: {self.lower_bound_seconds * 1e3:.3f} ms "
-            f"(compute {self.compute_bound_seconds * 1e3:.3f} ms, "
-            f"memory {self.bandwidth_bound_seconds * 1e3:.3f} ms)",
+            (
+                f"  bound: {self.lower_bound_seconds * 1e3:.3f} ms "
+                f"(compute {self.compute_bound_seconds * 1e3:.3f} ms, "
+                f"memory {self.bandwidth_bound_seconds * 1e3:.3f} ms)"
+            ),
             f"  observed: {self.observed_seconds * 1e3:.3f} ms",
             f"  roofline efficiency: {self.efficiency:.1%} ({self.bottleneck}-bound)",
-            f"  achieved: {self.achieved_flops / 1e9:.3f} GFLOP/s, "
-            f"{self.achieved_bandwidth / 1e9:.3f} GB/s",
+            (
+                f"  achieved: {self.achieved_flops / 1e9:.3f} GFLOP/s, "
+                f"{self.achieved_bandwidth / 1e9:.3f} GB/s"
+            ),
         ]
         lines.extend(f"  next: {finding}" for finding in self.findings)
         return "\n".join(lines)

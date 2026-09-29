@@ -1,8 +1,8 @@
 """Theoretical operation cost estimation."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from math import prod
-from typing import Iterable
 
 from .operations import Operation, numel
 
