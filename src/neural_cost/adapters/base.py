@@ -1,0 +1,34 @@
+"""Framework adapter contract."""
+
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
+from typing import Any
+
+from ..operations import Operation
+from ..profiler import Measurement
+
+
+class FrameworkAdapter(ABC):
+    """Bridge a framework's model representation to neural-cost.
+
+    Implement ``operations`` for theoretical analysis.  Override ``benchmark``
+    when the framework requires synchronization or offers memory telemetry.
+    """
+
+    name: str = "custom"
+
+    @abstractmethod
+    def operations(self, model: Any, example_inputs: Sequence[Any]) -> Sequence[Operation]:
+        """Return portable operations for ``model`` and concrete example inputs."""
+
+    def benchmark(
+        self,
+        function: Callable[..., Any],
+        *args: Any,
+        warmup: int = 3,
+        repeats: int = 10,
+        **kwargs: Any,
+    ) -> Measurement:
+        from ..profiler import benchmark
+
+        return benchmark(function, *args, warmup=warmup, repeats=repeats, **kwargs)
