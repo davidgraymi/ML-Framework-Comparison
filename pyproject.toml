@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling>=1.21"]
+requires = ["hatchling>=1.21", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "neural-cost"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Theoretical and measured memory/compute analysis for neural networks."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,11 @@ neural-cost-compare = "neural_cost._cli:main"
 
 [project.urls]
 Homepage = "https://github.com/davidgraymi/neural-cost"
+
+[tool.hatch.version]
+source = "vcs"
+tag-pattern = "v(?P<version>.*)"
+fallback-version = "0.0.0"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/neural_cost"]
