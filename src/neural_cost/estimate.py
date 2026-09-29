@@ -70,6 +70,32 @@ def estimate_operation(operation: Operation) -> CostEstimate:
         flops = int(operation.attrs["flops"])
     elif kind == "softmax" or kind in {"layernorm", "batchnorm"}:
         flops = 5 * numel(operation.output)
+    elif kind == "embedding":
+        # Embedding lookup: no multiply-accumulate FLOPs, just one read per token.
+        # output shape is (batch, seq_len, embed_dim) or (N, embed_dim).
+        flops = numel(operation.output)  # 1 FLOP/element as a nominal indexing cost
+    elif kind == "attention":
+        # Multi-head self-attention cost:
+        #   4 linear projections  : 4 × 2 × B × T × D² / num_heads × num_heads = 4×2×B×T×D²
+        #   QKᵀ per head         : B × H × T × T × head_dim  (2 FLOPs per element)
+        #   softmax               : 5 × B × H × T²
+        #   weighted sum (AV)     : B × H × T × T × head_dim (2 FLOPs)
+        # We approximate using output shape (B, T, D) and attrs.
+        if len(operation.output) >= 2:
+            b_t = prod(operation.output[:-1])  # batch * seq combined
+            d = operation.output[-1]
+            num_heads = int(operation.attrs.get("num_heads", 1))
+            head_dim = d // max(num_heads, 1)
+            seq_len = int(operation.attrs.get("seq_len", operation.output[-2] if len(operation.output) >= 2 else 1))
+            # 4 linear projections (Q, K, V, O)
+            proj_flops = 4 * 2 * b_t * d * d
+            # QKᵀ + AV per head  (2 passes over T×T×head_dim each)
+            attn_flops = 4 * b_t * num_heads * seq_len * head_dim
+            # softmax over seq_len per head (5 ops)
+            softmax_flops = 5 * b_t * num_heads * seq_len
+            flops = proj_flops + attn_flops + softmax_flops
+        else:
+            flops = numel(operation.output)
     elif kind == "pooling":
         kernel_size = operation.attrs.get("kernel_size")
         if not isinstance(kernel_size, tuple) or len(kernel_size) != 2:

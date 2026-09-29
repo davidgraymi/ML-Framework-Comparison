@@ -49,7 +49,10 @@ class TensorFlowAdapter(FrameworkAdapter):
                 tf.keras.layers.Softmax,
                 tf.keras.layers.BatchNormalization, tf.keras.layers.LayerNormalization,
                 tf.keras.layers.MaxPooling2D, tf.keras.layers.AveragePooling2D,
-                tf.keras.layers.GlobalAveragePooling2D
+                tf.keras.layers.GlobalAveragePooling2D,
+                tf.keras.layers.Embedding,
+                tf.keras.layers.LSTM, tf.keras.layers.GRU,
+                tf.keras.layers.MultiHeadAttention,
             )):
                 continue
             previous_call = layer.call
@@ -136,7 +139,84 @@ class TensorFlowAdapter(FrameworkAdapter):
                             {"kernel_size": (x[1], x[2])},
                         )
                     )
+                elif isinstance(_layer, tf.keras.layers.Embedding):
+                    y = shape(output)
+                    captured.append(
+                        Operation(
+                            _layer.name,
+                            "embedding",
+                            (shape(inputs),),
+                            y,
+                            _layer.embeddings.dtype.itemsize,
+                            {
+                                "parameter_bytes": int(_layer.count_params()) * _layer.embeddings.dtype.itemsize,
+                                "parameter_id": id(_layer.embeddings),
+                            },
+                        )
+                    )
+                elif isinstance(_layer, (tf.keras.layers.LSTM, tf.keras.layers.GRU)):
+                    # Capture as a linear operation representing the combined gate projections.
+                    # LSTM: 4 gates; GRU: 3 gates.
+                    gates = 4 if isinstance(_layer, tf.keras.layers.LSTM) else 3
+                    x = shape(inputs)
+                    units = _layer.units
+                    # inputs shape: (batch, timesteps, features) or (batch, features)
+                    if len(x) == 3:
+                        batch, timesteps, in_features = x
+                    else:
+                        batch, in_features = x[0], x[-1]
+                        timesteps = 1
+                    flat_batch = batch * timesteps
+                    param_bytes = int(_layer.count_params()) * inputs.dtype.size
+                    # Keras 3 stores weights on the inner cell; Keras 2 stores on the layer.
+                    cell = getattr(_layer, "cell", _layer)
+                    kernel = getattr(_layer, "kernel", None) or getattr(cell, "kernel", None)
+                    rec_kernel = getattr(_layer, "recurrent_kernel", None) or getattr(cell, "recurrent_kernel", None)
+                    kernel_id = id(kernel) if kernel is not None else id(_layer)
+                    rec_kernel_id = id(rec_kernel) if rec_kernel is not None else id(cell)
+                    # input-hidden
+                    captured.append(Operation(
+                        f"{_layer.name}.ih", "linear",
+                        ((flat_batch, in_features), (in_features, gates * units)),
+                        (flat_batch, gates * units),
+                        inputs.dtype.size,
+                        {"parameter_bytes": param_bytes, "parameter_id": kernel_id},
+                    ))
+                    # hidden-hidden
+                    captured.append(Operation(
+                        f"{_layer.name}.hh", "linear",
+                        ((flat_batch, units), (units, gates * units)),
+                        (flat_batch, gates * units),
+                        inputs.dtype.size,
+                        {"parameter_bytes": 0, "parameter_id": rec_kernel_id},
+                    ))
+                elif isinstance(_layer, tf.keras.layers.MultiHeadAttention):
+                    # MultiHeadAttention call signature: call(query, value, key=None, ...)
+                    # inputs here is the query tensor; capture as an attention operation.
+                    query = inputs
+                    try:
+                        q = shape(query)
+                    except (ValueError, AttributeError):
+                        return output
+                    num_heads = _layer.num_heads
+                    key_dim = _layer.key_dim
+                    embed_dim = q[-1] if len(q) >= 1 else key_dim * num_heads
+                    seq_len = q[-2] if len(q) >= 2 else 1
+                    batch = q[0] if len(q) >= 3 else 1
+                    captured.append(Operation(
+                        _layer.name, "attention",
+                        (q,),
+                        (batch, seq_len, embed_dim),
+                        query.dtype.size,
+                        {
+                            "num_heads": num_heads,
+                            "seq_len": seq_len,
+                            "parameter_bytes": int(_layer.count_params()) * query.dtype.size,
+                            "parameter_id": id(_layer),
+                        },
+                    ))
                 return output
+
 
             original_calls.append((layer, previous_call))
             layer.call = wrapped
