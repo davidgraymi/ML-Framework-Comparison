@@ -160,6 +160,47 @@ The script evaluates **FF DNN**, **CNN**, **RNN**, **LSTM**, and **Transformer**
 architectures using a shared hidden dimension (128) and batch size (16).
 Hardware is auto-detected; pass `--peak-flops` / `--memory-bandwidth` to override.
 
+## GPU benchmark
+
+Run the GPU benchmark to evaluate the same five architectures on available GPU
+accelerators (CUDA, ROCm, MPS, or CPU fallback):
+
+```bash
+# Auto-detect GPU (CUDA → MPS → CPU fallback)
+python benchmarks/collect_gpu_data.py
+
+# Quick run (fewer batch sizes / repeats)
+python benchmarks/collect_gpu_data.py --quick
+
+# Explicit CUDA device
+python benchmarks/collect_gpu_data.py --device cuda
+
+# Apple Silicon GPU
+python benchmarks/collect_gpu_data.py --device mps
+
+# Override hardware specs (e.g. NVIDIA A100 80 GB)
+python benchmarks/collect_gpu_data.py \
+  --peak-flops 312e12 --memory-bandwidth 2.0e12
+```
+
+Results are written to `benchmarks/results/benchmark_gpu_data.json`.
+Generate figures and the full markdown report:
+
+```bash
+python benchmarks/generate_gpu_report.py
+# → GPU_BENCHMARK_REPORT.md + benchmarks/results/figures/gpu_fig*.png
+```
+
+### GPU vs CPU benchmark differences
+
+| Aspect | CPU benchmark | GPU benchmark |
+|---|---|---|
+| Timing | `time.perf_counter_ns` | CUDA events (`torch.cuda.Event`) |
+| Sync barrier | None (CPU executes synchronously) | `torch.cuda.synchronize()` / `block_until_ready()` |
+| TF optimised variant | `tf.function` (no XLA) | `tf.function(jit_compile=True)` (XLA GPU) |
+| Batch sizes | 1, 8, 32, 128 | 8, 32, 128, 512 |
+| Device placement | CPU tensors | `.to(device)` / `jax.device_put` / `tf.device` |
+
 <details>
 <summary>Sample output (Apple M3, 3.6 TFLOP/s · 100 GB/s, batch=16, seq=32)</summary>
 
