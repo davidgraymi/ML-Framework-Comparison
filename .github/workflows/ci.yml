@@ -17,15 +17,40 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
         python-version: ['3.10', '3.12', '3.14']
+        # TensorFlow does not publish wheels for Python 3.14 yet.
+        # Exclude that combination so we don't fail on an unavailable wheel.
+        exclude:
+          - python-version: '3.14'
+            os: ubuntu-latest
+          - python-version: '3.14'
+            os: macos-latest
+        include:
+          # Run 3.14 in a no-tensorflow configuration (torch + jax only).
+          - os: ubuntu-latest
+            python-version: '3.14'
+            skip_tensorflow: 'true'
+          - os: macos-latest
+            python-version: '3.14'
+            skip_tensorflow: 'true'
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
+
+      - name: Install dependencies (with TensorFlow)
+        if: matrix.skip_tensorflow != 'true'
         run: uv sync --extra dev --extra torch --extra jax --extra tensorflow
+
+      - name: Install dependencies (without TensorFlow)
+        if: matrix.skip_tensorflow == 'true'
+        run: uv sync --extra dev --extra torch --extra jax
+
       - name: Run tests
         run: uv run --extra dev python -m pytest tests/ -v
