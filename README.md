@@ -191,6 +191,69 @@ python benchmarks/generate_gpu_report.py
 # → GPU_BENCHMARK_REPORT.md + benchmarks/results/figures/gpu_fig*.png
 ```
 
+### GPU-vs-CPU crossover analysis
+
+Find the exact batch size at which each architecture first runs faster on GPU than CPU:
+
+```bash
+# Collect CPU baseline first (if not already done)
+python benchmarks/collect_data.py
+
+# Run GPU benchmark with the fine batch-size grid (1, 4, 8 … 1024)
+python benchmarks/collect_gpu_data.py --crossover
+
+# Regenerate report — Figure GPU-8 (crossover plot) will now be included
+python benchmarks/generate_gpu_report.py
+```
+
+The crossover analysis sweeps `CROSSOVER_BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128, 256, 512, 1024]`
+and prints a table showing the first batch at which GPU latency drops below CPU latency.
+
+### JAX on Apple Silicon (MPS / Metal)
+
+JAX requires an explicit GPU plugin to run on Apple Silicon GPUs.
+**Without a plugin, JAX silently falls back to CPU** even on MPS-capable machines.
+Install one of:
+
+```bash
+# Official Apple plugin (tied to specific jaxlib versions — check compatibility)
+pip install -e '.[jax-metal]'
+# or
+pip install jax-metal
+
+# Community MLX backend (set JAX_PLATFORMS=mps)
+pip install -e '.[jax-mps]'
+# or
+pip install jax-mps && JAX_PLATFORMS=mps python benchmarks/collect_gpu_data.py
+```
+
+The benchmark now detects whether a plugin is installed and emits a clear diagnostic
+when JAX is running on CPU instead of the GPU.
+
+Known JAX MPS limitations (tracked upstream):
+- `jax.jit()` **regresses CNN latency 3×** on MPS — XLA's Metal conv lowering inserts
+  extra memory-layout transposes for statically-shaped graphs (known bug).
+- `jax.jit()` gains are large for LSTM (+1.79×) and Transformer (+1.12×) where XLA
+  eliminates intermediate tensor roundtrips.
+
+### CUDA CI pipeline
+
+A GitHub Actions workflow at [`.github/workflows/cuda_benchmark.yml`](.github/workflows/cuda_benchmark.yml)
+runs the full GPU benchmark on a **GitHub-hosted GPU larger runner (NVIDIA Tesla T4, CUDA 12.x)**:
+
+```
+# Trigger manually from the Actions tab:
+#   Actions → CUDA Benchmark → Run workflow
+
+# Or apply the label 'run-cuda-benchmark' to any pull request
+```
+
+> **Note:** GPU larger runners are a **paid feature** requiring an Organization plan with
+> GPU runner groups configured. The workflow is gated to only run on `workflow_dispatch` or
+> the `run-cuda-benchmark` PR label, never on every push, to avoid unexpected spend.
+>
+> Output artifacts (JSON telemetry + report + figures) are retained for 90 days.
+
 ### GPU vs CPU benchmark differences
 
 | Aspect | CPU benchmark | GPU benchmark |

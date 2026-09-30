@@ -10,10 +10,18 @@ Key differences vs collect_data.py (CPU):
   - CUDA synchronisation barriers ensure only kernel time is measured
   - Gracefully falls back to CPU if no GPU accelerator is found
 
+New in v0.3.0:
+  - --crossover: sweeps a fine batch-size grid (1..1024) to find where GPU first beats CPU.
+    Reads the CPU baseline from benchmarks/results/benchmark_data.json if present.
+  - JAX MPS driver check: detects whether jax-metal or jax-mps is installed and warns
+    clearly if JAX falls back to CPU on Apple Silicon.
+  - CUDA quality-of-life: enables TF32 matmul and cuDNN benchmark mode on Ampere+ GPUs.
+
 Run:
     python benchmarks/collect_gpu_data.py [--quick]
     python benchmarks/collect_gpu_data.py --device cuda  # explicit CUDA
     python benchmarks/collect_gpu_data.py --device mps   # Apple Silicon GPU
+    python benchmarks/collect_gpu_data.py --crossover    # find GPU break-even batch size
 """
 
 from __future__ import annotations
@@ -48,6 +56,13 @@ IMG_SIZE    = 32
 # GPU benefits most from larger batches (more parallelism).
 BATCH_SIZES       = [8, 32, 128, 512]
 QUICK_BATCH_SIZES = [32, 256]
+
+# Fine-grained grid for GPU-vs-CPU crossover analysis.
+# We sweep 1 → 1024 in a log scale to find the exact break-even point.
+CROSSOVER_BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+
+# Path to CPU benchmark JSON (written by collect_data.py).
+_CPU_DATA_FILE = Path(__file__).parent / "results" / "benchmark_data.json"
 
 
 # ---------------------------------------------------------------------------
@@ -801,6 +816,192 @@ def eval_tensorflow_gpu(
 
 
 # ---------------------------------------------------------------------------
+# JAX MPS / Metal driver diagnostics
+# ---------------------------------------------------------------------------
+
+def _check_jax_mps_driver() -> None:
+    """Warn clearly when JAX is running on CPU instead of Apple Silicon GPU.
+
+    On Apple Silicon the user must install one of:
+      - ``jax-metal``  (official Apple plugin):    pip install jax-metal
+      - ``jax-mps``    (community MLX backend):    pip install jax-mps
+
+    Without a plugin, JAX silently runs on CPU even on MPS-capable machines.
+    This function prints a diagnostic so the benchmark output is honest about
+    which device JAX is actually using.
+    """
+    try:
+        import importlib
+
+        import jax
+
+        platforms = [d.platform for d in jax.devices()]
+        if any(p in ("gpu", "tpu", "metal", "mps") for p in platforms):
+            return  # JAX has a real accelerator — nothing to do
+
+        # JAX is on CPU: check whether a Metal/MPS plugin is installed at all.
+        has_jax_metal = importlib.util.find_spec("jax_metal") is not None
+        has_jax_mps   = importlib.util.find_spec("jax_mps") is not None
+
+        print()
+        print("  ╔══════════════════════════════════════════════════════════════╗")
+        print("  ║  WARNING: JAX is running on CPU, not on the MPS/Metal GPU.  ║")
+        if not has_jax_metal and not has_jax_mps:
+            print("  ║  No JAX GPU plugin detected.  Install one of:               ║")
+            print("  ║    pip install jax-metal          # Official Apple plugin    ║")
+            print("  ║    pip install jax-mps            # Community MLX backend   ║")
+        elif has_jax_metal:
+            print("  ║  jax-metal is installed but JAX is still on CPU.            ║")
+            print("  ║  Check jax/jaxlib version compatibility:                    ║")
+            print("  ║    pip install --upgrade jax jaxlib jax-metal               ║")
+            print("  ║  Or set: JAX_PLATFORMS=metal python ...                     ║")
+        elif has_jax_mps:
+            print("  ║  jax-mps is installed but JAX is still on CPU.              ║")
+            print("  ║  Try: JAX_PLATFORMS=mps python ...                          ║")
+            print("  ║  Or: pip install --upgrade jax-mps                          ║")
+        print("  ║  JAX benchmark results below reflect CPU performance only.   ║")
+        print("  ╚══════════════════════════════════════════════════════════════╝")
+        print()
+    except ImportError:
+        pass  # JAX not installed — handled elsewhere.
+
+
+# ---------------------------------------------------------------------------
+# CUDA quality-of-life setup
+# ---------------------------------------------------------------------------
+
+def _configure_cuda_for_benchmark(device: Any) -> None:
+    """Enable TF32 and cuDNN benchmark mode for realistic throughput numbers.
+
+    These settings match production defaults on Ampere+ (A100, RTX 3090+, etc.)
+    and are safe for benchmarking.  They have no effect on MPS or CPU.
+    """
+    try:
+        import torch
+        if not str(device).startswith("cuda") or not torch.cuda.is_available():
+            return
+        # TF32 matmul (enabled by default since PyTorch 1.11, but be explicit)
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        # cuDNN benchmark mode: selects the fastest convolution algorithm
+        # on the first run and caches it.  Adds ~30 s to the first iteration
+        # (already covered by our warmup) but improves steady-state throughput.
+        torch.backends.cudnn.benchmark = True
+        print(f"  CUDA TF32={torch.backends.cuda.matmul.allow_tf32}  "
+              f"cuDNN-benchmark={torch.backends.cudnn.benchmark}")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# GPU-vs-CPU crossover analysis
+# ---------------------------------------------------------------------------
+
+def _load_cpu_latencies() -> dict[tuple[str, str, int], float] | None:
+    """Load CPU benchmark results from the companion JSON file, if present.
+
+    Returns a dict keyed by (framework, architecture, batch) -> latency_ms,
+    or None if the CPU data file is not found.
+    """
+    if not _CPU_DATA_FILE.exists():
+        return None
+    try:
+        raw = json.loads(_CPU_DATA_FILE.read_text())
+        out: dict[tuple[str, str, int], float] = {}
+        best_variant = {"PyTorch": "compiled", "JAX": "jit", "TensorFlow": "tf.function"}
+        fallback = {"PyTorch": "baseline", "JAX": "baseline", "TensorFlow": "baseline"}
+        for r in raw.get("records", []):
+            fw, arch, batch = r["framework"], r["architecture"], r["batch"]
+            key = (fw, arch, batch)
+            preferred = best_variant.get(fw, "baseline")
+            # Accept the preferred variant, or fall back to baseline when preferred
+            # isn't in the data for this key yet.
+            if r["variant"] == preferred or (
+                key not in out and r["variant"] in (preferred, fallback.get(fw, "baseline"))
+            ):
+                out[key] = r["latency_median_ms"]
+        return out or None
+    except Exception as exc:
+        print(f"  [crossover] could not read CPU data: {exc}")
+        return None
+
+
+def compute_crossover(
+    gpu_records: list[BenchRecord],
+    cpu_latencies: dict[tuple[str, str, int], float],
+) -> dict:
+    """Find the first batch size where GPU latency drops below CPU latency.
+
+    Returns a nested dict::
+
+        {framework: {architecture: {
+            'crossover_batch': int | None,
+            'gpu_wins_any': bool,
+            'data': [{batch, gpu_ms, cpu_ms, gpu_faster, variant}, ...]
+        }}}
+    """
+    result: dict = {}
+    for fw in FRAMEWORKS:
+        result[fw] = {}
+        for arch in ARCHITECTURES:
+            # Collect GPU data points (best variant, sorted by batch)
+            gpu_recs = sorted(
+                [r for r in gpu_records
+                 if r.framework == fw and r.architecture == arch],
+                key=lambda r: r.batch,
+            )
+            points = []
+            for r in gpu_recs:
+                cpu_ms = cpu_latencies.get((fw, arch, r.batch))
+                gpu_faster = (cpu_ms is not None) and (r.latency_median_ms < cpu_ms)
+                points.append({
+                    "batch":      r.batch,
+                    "gpu_ms":     r.latency_median_ms,
+                    "cpu_ms":     cpu_ms,
+                    "gpu_faster": gpu_faster,
+                    "variant":    r.variant,
+                })
+
+            # Find the first batch at which GPU beats CPU
+            crossover_batch = next(
+                (pt["batch"] for pt in points if pt["gpu_faster"]), None
+            )
+
+            result[fw][arch] = {
+                "crossover_batch": crossover_batch,
+                "gpu_wins_any":    crossover_batch is not None,
+                "data":            points,
+            }
+    return result
+
+
+def print_crossover_table(crossover: dict) -> None:
+    """Print a human-readable GPU-vs-CPU crossover summary table."""
+    print()
+    print("  ┌─ GPU-vs-CPU Crossover Analysis ──────────────────────────────────────────")
+    print("  │  Smallest batch size at which each architecture runs faster on GPU than CPU.")
+    print("  │  'never' means GPU did not win at any tested batch size.")
+    print("  │")
+    header = f"  │  {'Architecture':<14} {'Framework':<12} {'Crossover batch':>16}  Notes"
+    print(header)
+    print("  │  " + "─" * (len(header) - 5))
+    for fw in FRAMEWORKS:
+        for arch in ARCHITECTURES:
+            info = crossover.get(fw, {}).get(arch, {})
+            cb   = info.get("crossover_batch")
+            tag  = f"≥ batch={cb}" if cb else "never"
+            note = ""
+            if cb:
+                pt = next((p for p in info["data"] if p["batch"] == cb), None)
+                if pt and pt.get("cpu_ms") and pt.get("gpu_ms"):
+                    ratio = pt["cpu_ms"] / pt["gpu_ms"]
+                    note = f"GPU {ratio:.2f}× faster at batch={cb}"
+            print(f"  │  {arch:<14} {fw:<12} {tag:>16}  {note}")
+    print("  └──────────────────────────────────────────────────────────────────────────")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -815,11 +1016,23 @@ def main() -> None:
                         help="Override peak FLOP/s (e.g. 312e12 for A100)")
     parser.add_argument("--memory-bandwidth", type=float, default=None,
                         help="Override memory bandwidth in bytes/s (e.g. 2.0e12 for A100)")
+    parser.add_argument(
+        "--crossover", action="store_true",
+        help=(
+            "Sweep a fine batch-size grid (1..1024) to find where each architecture "
+            "first runs faster on GPU than on CPU.  Reads CPU baseline from "
+            "benchmarks/results/benchmark_data.json if present."
+        ),
+    )
     args = parser.parse_args()
 
     warmup  = 5  if args.quick else args.warmup
     repeats = 15 if args.quick else args.repeats
-    batches = QUICK_BATCH_SIZES if args.quick else BATCH_SIZES
+    if args.crossover:
+        batches = CROSSOVER_BATCH_SIZES
+        print("Crossover mode: sweeping batch sizes", batches)
+    else:
+        batches = QUICK_BATCH_SIZES if args.quick else BATCH_SIZES
 
     # ------------------------------------------------------------------
     # Detect GPU and build a HardwareSpec for the GPU if one is found.
@@ -841,17 +1054,17 @@ def main() -> None:
         if str(torch_dev).startswith("cuda") and torch.cuda.is_available():
             props = torch.cuda.get_device_properties(torch_dev)
             gpu_name = props.name
-            # SM count × 2 (FP32 ALUs per SM on Ampere/Ada) × 2 ops/clock × clock
+            # SM count × 128 CUDA cores/SM (Ampere) × 2 FP32 ops/clock × clock Hz
             # This is an approximation; --peak-flops can override.
             clock_hz = props.max_clock_rate * 1000  # kHz → Hz
             n_sm     = props.multi_processor_count
-            # Common CUDA arch: 128 CUDA cores/SM (Ampere) → 2 FP32 ops/clock/core
             peak_flops = n_sm * 128 * 2 * clock_hz
             mem_bw     = props.memory_bandwidth  # bytes/s (PyTorch 2.x)
             print(f"  GPU detected: {gpu_name}")
             print(f"  SMs={n_sm}  clock={clock_hz/1e9:.2f} GHz  "
                   f"est. peak={peak_flops/1e12:.1f} TFLOP/s  "
                   f"bw={mem_bw/1e9:.0f} GB/s")
+            _configure_cuda_for_benchmark(torch_dev)
         elif str(torch_dev) == "mps":
             gpu_name  = torch_label
             # Apple Silicon — use detected values (chip table has GPU specs)
@@ -861,6 +1074,9 @@ def main() -> None:
             print(f"  No GPU found — running on {hardware.name}")
     else:
         torch_dev, torch_label = None, "torch-not-installed"
+
+    # JAX MPS driver diagnostics (runs even when torch is unavailable)
+    _check_jax_mps_driver()
 
     if args.peak_flops:
         peak_flops = args.peak_flops
@@ -927,10 +1143,27 @@ def main() -> None:
     out_dir  = Path(__file__).parent / "results"
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / "benchmark_gpu_data.json"
-    payload  = {"hardware": hw_meta, "records": [asdict(r) for r in all_records]}
+    payload: dict = {"hardware": hw_meta, "records": [asdict(r) for r in all_records]}
+
+    # ------------------------------------------------------------------
+    # Crossover analysis: compare GPU latencies to CPU baseline
+    # ------------------------------------------------------------------
+    if args.crossover:
+        cpu_latencies = _load_cpu_latencies()
+        if cpu_latencies:
+            crossover = compute_crossover(all_records, cpu_latencies)
+            print_crossover_table(crossover)
+            payload["crossover"] = crossover
+        else:
+            print(
+                f"\n  [crossover] No CPU baseline found at {_CPU_DATA_FILE}\n"
+                "  Run `python benchmarks/collect_data.py` first to generate it.\n"
+            )
+
     out_path.write_text(json.dumps(payload, indent=2))
     print(f"\nSaved {len(all_records)} records → {out_path}")
 
 
 if __name__ == "__main__":
     main()
+

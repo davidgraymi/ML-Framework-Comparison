@@ -20,6 +20,11 @@ dependencies = []
 [project.optional-dependencies]
 torch = ["torch>=2.0"]
 jax = ["jax>=0.4"]
+# Apple Silicon JAX GPU plugins — install one of these to run JAX on MPS/Metal.
+# jax-metal is the official Apple plugin; jax-mps is a community MLX-based backend.
+# Without one of these, JAX silently falls back to CPU on Apple Silicon.
+jax-metal = ["jax>=0.4", "jax-metal"]
+jax-mps = ["jax>=0.4", "jax-mps"]
 tensorflow = ["tensorflow>=2.12"]
 dev = ["pytest>=7.4", "ruff>=0.4"]
 
