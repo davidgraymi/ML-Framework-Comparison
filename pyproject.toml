@@ -7,7 +7,7 @@ name = "neural-cost"
 dynamic = ["version"]
 description = "Theoretical and measured memory/compute analysis for neural networks."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Neural Cost contributors" }]
 classifiers = [
