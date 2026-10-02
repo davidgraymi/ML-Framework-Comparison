@@ -254,7 +254,7 @@ class TorchFxAdapter(TorchAdapter):
         try:
             gm = torch.fx.symbolic_trace(model)
             ShapeProp(gm).propagate(*example_inputs)
-        except Exception:
+        except Exception:  # noqa: BLE001
             # Fall back gracefully to hook-based capture if symbolic tracing fails
             return super().operations(model, example_inputs)
 

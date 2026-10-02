@@ -162,6 +162,7 @@ class TensorFlowAdapterExpandedE2ETest(unittest.TestCase):
 class TorchFxAdapterE2ETest(unittest.TestCase):
     def test_captures_inline_functional_and_residual_add(self):
         import torch
+
         from neural_cost.adapters import TorchFxAdapter
 
         class ResidualBlock(torch.nn.Module):
@@ -186,6 +187,7 @@ class TorchFxAdapterE2ETest(unittest.TestCase):
 
     def test_fallback_on_untraceable_control_flow(self):
         import torch
+
         from neural_cost.adapters import TorchFxAdapter
 
         class DynamicModel(torch.nn.Module):
