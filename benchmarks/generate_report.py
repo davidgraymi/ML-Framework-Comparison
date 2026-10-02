@@ -394,6 +394,28 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
                     )
         return "\n".join(rows)
 
+    def diagnostics_table(batch: int) -> str:
+        rows = [
+            "| Architecture | Framework | Variant | Fused Efficiency | Traffic Saved | Resident Cache | Top Layer Bottleneck | Layer Share |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for arch in ARCHS:
+            for fw in FRAMEWORKS:
+                for variant in ["baseline", "compiled", "jit", "tf.function"]:
+                    hits = select(records, framework=fw, variant=variant, architecture=arch, batch=batch)
+                    if not hits:
+                        continue
+                    r = hits[0]
+                    fused_eff = f"{r['fused_efficiency']:.1%}" if r.get("fused_efficiency") is not None else "—"
+                    traffic = f"{r['traffic_reduction_pct']:.1f}%" if r.get("traffic_reduction_pct") is not None else "—"
+                    res = f"{r['cache_name']}" if r.get("cache_resident") and r.get("cache_name") else ("Yes" if r.get("cache_resident") else "DRAM")
+                    top_layer = r.get("top_layer_bottleneck") or "—"
+                    share = f"{r['top_layer_share_pct']:.1f}%" if r.get("top_layer_share_pct") is not None else "—"
+                    rows.append(
+                        f"| {arch} | {fw} | {variant} | {fused_eff} | {traffic} | {res} | {top_layer} | {share} |"
+                    )
+        return "\n".join(rows)
+
     def speedup_table() -> str:
         opt_map = {"PyTorch": "compiled", "JAX": "jit", "TensorFlow": "tf.function"}
         rows = ["| Architecture | PyTorch (compile) | JAX (jit) | TensorFlow (tf.function) |",
@@ -556,6 +578,19 @@ Lower CV (%) indicates more stable, reproducible measurements.
 <summary>Expand full results table (all variants, batch={batch32})</summary>
 
 {stat_table(batch32)}
+
+</details>
+
+---
+
+## Advanced Causal Diagnostics (batch={batch32})
+
+Diagnostics powered by neural-cost's causal gap analyzer, hierarchical cache model, operator fusion estimator, and FX graph tracing:
+
+<details>
+<summary>Expand advanced diagnostics table (batch={batch32})</summary>
+
+{diagnostics_table(batch32)}
 
 </details>
 
