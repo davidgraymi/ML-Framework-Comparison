@@ -73,6 +73,12 @@ class Result:
     achieved_gflops: float
     achieved_gbw: float
     bottleneck: str
+    fused_efficiency: float | None = None
+    fused_lower_bound_ms: float | None = None
+    cache_resident: bool = False
+    cache_name: str | None = None
+    top_layer_bottleneck: str | None = None
+    top_layer_share_pct: float | None = None
 
 
 def evaluate(
@@ -87,10 +93,25 @@ def evaluate(
 ) -> Result:
     profile = profile_model(model, inputs, adapter)
     measurement = adapter.benchmark(model, *inputs, warmup=warmup, repeats=repeats)
-    gap = analyze_gap(profile.cost, measurement, hardware)
+    gap = analyze_gap(profile.cost, measurement, hardware, operations=profile.operations)
 
     samples_ms = [s * 1e3 for s in measurement.samples_seconds]
     sd = stdev(samples_ms) if len(samples_ms) > 1 else 0.0
+
+    fused_lb_ms = (
+        round(gap.fused_lower_bound_seconds * 1e3, 3)
+        if gap.fused_lower_bound_seconds is not None
+        else None
+    )
+    cache_resident = gap.resident_cache_level is not None
+    cache_name = gap.resident_cache_level
+
+    top_layer_bneck = None
+    top_layer_share = None
+    if gap.layer_analyses:
+        top_l = max(gap.layer_analyses, key=lambda l: l.time_share_ratio)
+        top_layer_bneck = f"{top_l.name} ({top_l.kind}, {top_l.bottleneck}-bound)"
+        top_layer_share = round(top_l.time_share_ratio * 100, 1)
 
     return Result(
         framework=framework,
@@ -105,6 +126,12 @@ def evaluate(
         achieved_gflops=gap.achieved_flops / 1e9,
         achieved_gbw=gap.achieved_bandwidth / 1e9,
         bottleneck=gap.bottleneck,
+        fused_efficiency=gap.fused_efficiency,
+        fused_lower_bound_ms=fused_lb_ms,
+        cache_resident=cache_resident,
+        cache_name=cache_name,
+        top_layer_bottleneck=top_layer_bneck,
+        top_layer_share_pct=top_layer_share,
     )
 
 
@@ -540,6 +567,13 @@ def print_architecture_section(arch: str, results: list[Result], hardware: Hardw
         )
 
     print("─" * 135)
+    print("  Diagnostics (top layer bottleneck & fusion):")
+    for r in fw_results:
+        fused_info = f", Fused Eff: {r.fused_efficiency:.1%}" if r.fused_efficiency is not None else ""
+        cache_info = f", Resident in {r.cache_name}" if r.cache_resident and r.cache_name else ""
+        top_info = f"Top Bottleneck: {r.top_layer_bottleneck} ({r.top_layer_share_pct}%)" if r.top_layer_bottleneck else "Top Bottleneck: N/A"
+        print(f"    • {r.framework}: {top_info}{fused_info}{cache_info}")
+    print("─" * 135)
     print(f"  AI = arithmetic intensity (FLOP/byte).  "
           f"Ridge point = {hardware.ridge_point:.1f} FLOP/byte  "
           "(above → compute-bound, below → memory-bound)")
@@ -608,9 +642,13 @@ def main() -> None:
     print("Detecting hardware…", flush=True)
     hardware, detection = detect_hardware(bandwidth_benchmark_mb=args.bw_bench_mb)
     if args.peak_flops is not None:
-        hardware = HardwareSpec(hardware.name, args.peak_flops, hardware.memory_bandwidth)
+        hardware = HardwareSpec(
+            hardware.name, args.peak_flops, hardware.memory_bandwidth, caches=hardware.caches
+        )
     if args.memory_bandwidth is not None:
-        hardware = HardwareSpec(hardware.name, hardware.peak_flops, args.memory_bandwidth)
+        hardware = HardwareSpec(
+            hardware.name, hardware.peak_flops, args.memory_bandwidth, caches=hardware.caches
+        )
     print_hardware(hardware, detection)
 
     all_results: list[Result] = []
@@ -619,7 +657,14 @@ def main() -> None:
         if not installed(pkg):
             print(f"  [skipping {fw_name} – not installed]")
             continue
-        adapter = ADAPTERS[fw_name]()
+        if fw_name == "PyTorch":
+            from neural_cost.adapters import TorchFxAdapter
+            try:
+                adapter: FrameworkAdapter = TorchFxAdapter()
+            except Exception:  # noqa: BLE001
+                adapter = ADAPTERS[fw_name]()
+        else:
+            adapter = ADAPTERS[fw_name]()
         builders = BUILDERS[fw_name]
         print(f"Benchmarking {fw_name}…", flush=True)
         for arch in ARCHITECTURES:

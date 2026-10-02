@@ -1,7 +1,12 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from .estimate import CostEstimate, FusedCostEstimate, estimate_operation
+from .estimate import (
+    CostEstimate,
+    FusedCostEstimate,
+    estimate_fused_operations,
+    estimate_operation,
+)
 from .hardware import HardwareSpec
 from .memory import MemoryEstimate
 from .model import ModelProfile
@@ -193,14 +198,22 @@ def analyze_gap(
 
     fused_lower_bound_seconds = None
     fused_efficiency = None
+    fused_est: FusedCostEstimate | None = None
     if isinstance(estimate, FusedCostEstimate) and estimate.eliminated_bytes > 0:
-        fused_bandwidth = estimate.total_bytes / hardware.memory_bandwidth
+        fused_est = estimate
+    elif operations is not None:
+        candidate_fused = estimate_fused_operations(operations)
+        if candidate_fused.eliminated_bytes > 0:
+            fused_est = candidate_fused
+
+    if fused_est is not None:
+        fused_bandwidth = fused_est.total_bytes / hardware.memory_bandwidth
         fused_lower_bound_seconds = max(compute, fused_bandwidth)
         fused_efficiency = min(1.0, fused_lower_bound_seconds / observed)
         findings.append(
-            f"Fusion optimization: kernel fusion eliminates {estimate.eliminated_bytes / 1024:.1f} KB of traffic "
-            f"({estimate.traffic_reduction_ratio:.1%} reduction), raising arithmetic intensity to "
-            f"{estimate.arithmetic_intensity:.1f} FLOP/byte and fused lower bound to {fused_lower_bound_seconds * 1e3:.3f} ms."
+            f"Fusion optimization: kernel fusion eliminates {fused_est.eliminated_bytes / 1024:.1f} KB of traffic "
+            f"({fused_est.traffic_reduction_ratio:.1%} reduction), raising arithmetic intensity to "
+            f"{fused_est.arithmetic_intensity:.1f} FLOP/byte and fused lower bound to {fused_lower_bound_seconds * 1e3:.3f} ms."
         )
 
     resident_cache = hardware.find_resident_cache(estimate.total_bytes)
