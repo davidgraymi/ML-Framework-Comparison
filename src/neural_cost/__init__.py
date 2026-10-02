@@ -11,7 +11,7 @@ from .analysis import (
 )
 from .api import estimate_model
 from .estimate import CostEstimate, estimate_operations
-from .hardware import HardwareSpec
+from .hardware import CacheSpec, HardwareSpec
 from .hardware_detect import DetectionResult, detect_hardware
 from .memory import MemoryEstimate, estimate_memory
 from .model import ModelProfile, profile_model
@@ -19,6 +19,7 @@ from .operations import Operation
 from .profiler import Measurement, benchmark
 
 __all__ = [
+    "CacheSpec",
     "CostEstimate",
     "DetectionResult",
     "GapAnalysis",
