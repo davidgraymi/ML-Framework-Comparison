@@ -3,8 +3,6 @@ import unittest
 from neural_cost.hardware import CacheSpec, HardwareSpec
 
 
-
-
 class HardwareTests(unittest.TestCase):
     def test_valid_construction(self):
         spec = HardwareSpec(name="TestGPU", peak_flops=1e12, memory_bandwidth=1e9)
