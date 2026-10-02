@@ -236,3 +236,119 @@ class TorchAdapter(FrameworkAdapter):
             event_count,
             device_time,
         )
+
+
+class TorchFxAdapter(TorchAdapter):
+    """Capture PyTorch module and inline functional operations via torch.fx graph tracing."""
+
+    name = "pytorch-fx"
+
+    def operations(self, model: Any, example_inputs: Sequence[Any]) -> Sequence[Operation]:
+        try:
+            import torch
+            import torch.fx
+            from torch.fx.passes.shape_prop import ShapeProp
+        except ImportError as error:  # pragma: no cover
+            raise ImportError("Install neural-cost[torch] to use TorchFxAdapter") from error
+
+        try:
+            gm = torch.fx.symbolic_trace(model)
+            ShapeProp(gm).propagate(*example_inputs)
+        except Exception:
+            # Fall back gracefully to hook-based capture if symbolic tracing fails
+            return super().operations(model, example_inputs)
+
+        captured: list[Operation] = []
+        modules = dict(model.named_modules())
+
+        def get_shape(val: Any) -> tuple[int, ...] | None:
+            if hasattr(val, "shape"):
+                return tuple(int(d) for d in val.shape)
+            if isinstance(val, torch.fx.Node) and "tensor_meta" in val.meta:
+                meta = val.meta["tensor_meta"]
+                if hasattr(meta, "shape"):
+                    return tuple(int(d) for d in meta.shape)
+            return None
+
+        def get_dtype_bytes(val: Any) -> int:
+            if hasattr(val, "dtype"):
+                return val.element_size() if hasattr(val, "element_size") else 4
+            if isinstance(val, torch.fx.Node) and "tensor_meta" in val.meta:
+                meta = val.meta["tensor_meta"]
+                if hasattr(meta, "dtype"):
+                    return torch.empty((), dtype=meta.dtype).element_size()
+            return 4
+
+        for node in gm.graph.nodes:
+            out_shape = get_shape(node)
+            if not out_shape:
+                continue
+            dtype_b = get_dtype_bytes(node)
+
+            if node.op == "call_module":
+                mod = modules.get(str(node.target))
+                if mod is None:
+                    continue
+                in_shapes = tuple(s for s in (get_shape(arg) for arg in node.args) if s is not None)
+                if isinstance(mod, torch.nn.Linear):
+                    if in_shapes:
+                        captured.append(Operation(
+                            node.name, "linear",
+                            (in_shapes[0], tuple(mod.weight.T.shape)),
+                            out_shape, dtype_b,
+                            {
+                                "parameter_bytes": sum(p.numel() * p.element_size() for p in mod.parameters(recurse=False)),
+                                "parameter_id": id(mod.weight),
+                            }
+                        ))
+                elif isinstance(mod, torch.nn.Conv2d):
+                    if in_shapes:
+                        captured.append(Operation(
+                            node.name, "conv2d",
+                            (in_shapes[0], tuple(mod.weight.shape)),
+                            out_shape, dtype_b,
+                            {
+                                "parameter_bytes": sum(p.numel() * p.element_size() for p in mod.parameters(recurse=False)),
+                                "parameter_id": id(mod.weight),
+                            }
+                        ))
+                elif isinstance(mod, torch.nn.Embedding):
+                    captured.append(Operation(
+                        node.name, "embedding", in_shapes or (out_shape,), out_shape, dtype_b,
+                        {
+                            "parameter_bytes": mod.weight.numel() * mod.weight.element_size(),
+                            "parameter_id": id(mod.weight),
+                        }
+                    ))
+                elif isinstance(mod, (torch.nn.ReLU, torch.nn.GELU, torch.nn.SiLU, torch.nn.Sigmoid, torch.nn.Tanh)):
+                    captured.append(Operation(node.name, "elementwise", in_shapes or (out_shape,), out_shape, dtype_b))
+                elif isinstance(mod, torch.nn.LayerNorm):
+                    captured.append(Operation(node.name, "layernorm", in_shapes or (out_shape,), out_shape, dtype_b))
+                elif isinstance(mod, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
+                    captured.append(Operation(node.name, "batchnorm", in_shapes or (out_shape,), out_shape, dtype_b))
+                elif isinstance(mod, (torch.nn.MaxPool2d, torch.nn.AvgPool2d, torch.nn.AdaptiveAvgPool2d)):
+                    k = getattr(mod, "kernel_size", (1, 1))
+                    k_tuple = k if isinstance(k, tuple) else (k, k)
+                    captured.append(Operation(node.name, "pooling", in_shapes or (out_shape,), out_shape, dtype_b, {"kernel_size": k_tuple}))
+
+            elif node.op in {"call_function", "call_method"}:
+                fn = node.target
+                fn_name = fn.__name__ if hasattr(fn, "__name__") else str(fn)
+                in_shapes = tuple(s for s in (get_shape(arg) for arg in node.args) if s is not None)
+
+                if fn_name in {"matmul", "mm", "bmm", "linear"} or fn in {torch.matmul, torch.mm, torch.bmm, torch.nn.functional.linear}:
+                    if len(in_shapes) >= 2:
+                        captured.append(Operation(node.name, "matmul", in_shapes[:2], out_shape, dtype_b))
+                elif fn_name in {
+                    "add", "mul", "sub", "truediv", "div", "relu", "gelu", "silu", "sigmoid",
+                    "tanh", "exp", "log", "sqrt", "neg", "abs"
+                } or any(f in str(fn) for f in ["add", "mul", "sub", "div", "relu", "gelu", "silu", "sigmoid", "tanh", "exp"]):
+                    captured.append(Operation(node.name, "elementwise", in_shapes or (out_shape,), out_shape, dtype_b))
+                elif fn_name in {"layer_norm", "batch_norm"} or fn in {torch.nn.functional.layer_norm, torch.nn.functional.batch_norm}:
+                    kind = "layernorm" if "layer" in fn_name else "batchnorm"
+                    captured.append(Operation(node.name, kind, in_shapes or (out_shape,), out_shape, dtype_b))
+                elif fn_name == "softmax" or fn == torch.nn.functional.softmax:
+                    captured.append(Operation(node.name, "softmax", in_shapes or (out_shape,), out_shape, dtype_b))
+
+        return captured if captured else super().operations(model, example_inputs)
+

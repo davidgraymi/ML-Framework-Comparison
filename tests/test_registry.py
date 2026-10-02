@@ -19,6 +19,13 @@ def test_get_adapter_pytorch_alias():
     assert isinstance(adapter, TorchAdapter)
 
 
+def test_get_adapter_torch_fx():
+    adapter = get_adapter("torch-fx")
+    assert isinstance(adapter, TorchAdapter)
+    assert adapter.name == "pytorch-fx"
+
+
+
 def test_get_adapter_jax():
     adapter = get_adapter("jax")
     assert isinstance(adapter, JaxAdapter)
