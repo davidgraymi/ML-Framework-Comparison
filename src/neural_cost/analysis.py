@@ -20,6 +20,9 @@ class GapAnalysis:
     achieved_bandwidth: float
     bottleneck: str
     findings: tuple[str, ...]
+    cache_bound_seconds: float | None = None
+    resident_cache_level: str | None = None
+    cache_efficiency: float | None = None
 
     def render(self) -> str:
         """Return a compact, terminal-friendly performance-gap report."""
@@ -30,13 +33,22 @@ class GapAnalysis:
                 f"(compute {self.compute_bound_seconds * 1e3:.3f} ms, "
                 f"memory {self.bandwidth_bound_seconds * 1e3:.3f} ms)"
             ),
+        ]
+        if self.resident_cache_level and self.cache_bound_seconds is not None:
+            lines.append(
+                f"  cache residency: {self.resident_cache_level} "
+                f"(bound {self.cache_bound_seconds * 1e3:.3f} ms"
+                + (f", efficiency {self.cache_efficiency:.1%}" if self.cache_efficiency is not None else "")
+                + ")"
+            )
+        lines.extend([
             f"  observed: {self.observed_seconds * 1e3:.3f} ms",
             f"  roofline efficiency: {self.efficiency:.1%} ({self.bottleneck}-bound)",
             (
                 f"  achieved: {self.achieved_flops / 1e9:.3f} GFLOP/s, "
                 f"{self.achieved_bandwidth / 1e9:.3f} GB/s"
             ),
-        ]
+        ])
         lines.extend(f"  next: {finding}" for finding in self.findings)
         return "\n".join(lines)
 
@@ -77,6 +89,23 @@ def analyze_gap(
     efficiency = min(1.0, lower_bound / observed)
     bottleneck = "compute" if compute >= bandwidth else "memory"
     findings: list[str] = []
+
+    resident_cache = hardware.find_resident_cache(estimate.total_bytes)
+    cache_bound_seconds = None
+    resident_cache_level = None
+    cache_efficiency = None
+
+    if resident_cache is not None:
+        resident_cache_level = resident_cache.name
+        cache_mem_bound = estimate.total_bytes / resident_cache.bandwidth
+        cache_bound_seconds = max(compute, cache_mem_bound)
+        cache_efficiency = min(1.0, cache_bound_seconds / observed)
+        findings.append(
+            f"Cache-resident: total tensor traffic ({estimate.total_bytes / (1024 * 1024):.2f} MB) fits in {resident_cache.name} "
+            f"({resident_cache.capacity / (1024 * 1024):.0f} MB, {resident_cache.bandwidth / 1e9:.0f} GB/s). "
+            f"Hierarchical roofline bound is {cache_bound_seconds * 1e3:.3f} ms."
+        )
+
     if bottleneck == "memory":
         findings.append("Memory-bound: consider fusion, reduced precision, or fewer materialized tensors.")
     else:
@@ -95,6 +124,9 @@ def analyze_gap(
         estimate.total_bytes / observed,
         bottleneck,
         tuple(findings),
+        cache_bound_seconds=cache_bound_seconds,
+        resident_cache_level=resident_cache_level,
+        cache_efficiency=cache_efficiency,
     )
 
 

@@ -84,6 +84,22 @@ class AnalysisTests(unittest.TestCase):
         self.assertTrue(any("Reserved memory exceeds allocated memory" in f for f in result.findings))
         self.assertEqual(result.overhead_ratio, 2.0)
 
+    def test_analyze_gap_cache_residency(self):
+        from neural_cost.hardware import CacheSpec
+
+        l2 = CacheSpec("L2", bandwidth=10000000.0, capacity=1000)
+        hardware = HardwareSpec("test", peak_flops=10000, memory_bandwidth=1000000, caches=(l2,))
+        estimate = CostEstimate(flops=1000, read_bytes=100, write_bytes=100, operations=1)
+        measurement = Measurement(median_seconds=0.01, samples_seconds=(0.01,))
+        result = analyze_gap(estimate, measurement, hardware)
+        self.assertEqual(result.resident_cache_level, "L2")
+        self.assertIsNotNone(result.cache_bound_seconds)
+        self.assertIsNotNone(result.cache_efficiency)
+        self.assertTrue(any("Cache-resident" in f for f in result.findings))
+
+        rendered = result.render()
+        self.assertIn("cache residency: L2", rendered)
+
     def test_analyze_model_gap(self):
         cost_est = CostEstimate(flops=1000, read_bytes=100, write_bytes=100, operations=1)
         mem_est = MemoryEstimate(parameter_bytes=100, activation_bytes=100, minimum_peak_activation_bytes=50, conservative_peak_activation_bytes=100)
@@ -97,3 +113,4 @@ class AnalysisTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
