@@ -31,22 +31,21 @@ from .hardware import CacheSpec, HardwareSpec
 # ---------------------------------------------------------------------------
 _APPLE_CHIP_TABLE: dict[str, tuple[float, float, tuple[CacheSpec, ...]]] = {
     # (peak_tflops_fp32, bandwidth_gb_s, (CacheSpec(...), ...))
-    "M1":       (2.6,   68.25, (CacheSpec("SLC", 200e9, 8 * 1024 * 1024),)),
-    "M1 Pro":   (5.2,  200.0,  (CacheSpec("SLC", 400e9, 24 * 1024 * 1024),)),
-    "M1 Max":   (10.4, 400.0,  (CacheSpec("SLC", 800e9, 48 * 1024 * 1024),)),
-    "M1 Ultra": (21.2, 800.0,  (CacheSpec("SLC", 1600e9, 96 * 1024 * 1024),)),
-    "M2":       (3.6,  100.0,  (CacheSpec("SLC", 250e9, 8 * 1024 * 1024),)),
-    "M2 Pro":   (6.8,  200.0,  (CacheSpec("SLC", 450e9, 24 * 1024 * 1024),)),
-    "M2 Max":   (13.6, 400.0,  (CacheSpec("SLC", 900e9, 48 * 1024 * 1024),)),
-    "M2 Ultra": (27.2, 800.0,  (CacheSpec("SLC", 1800e9, 96 * 1024 * 1024),)),
-    "M3":       (3.6,  100.0,  (CacheSpec("SLC", 250e9, 8 * 1024 * 1024),)),
-    "M3 Pro":   (7.4,  150.0,  (CacheSpec("SLC", 400e9, 24 * 1024 * 1024),)),
-    "M3 Max":   (14.2, 300.0,  (CacheSpec("SLC", 800e9, 48 * 1024 * 1024),)),
-    "M4":       (4.6,  120.0,  (CacheSpec("SLC", 300e9, 8 * 1024 * 1024),)),
-    "M4 Pro":   (9.2,  273.0,  (CacheSpec("SLC", 600e9, 24 * 1024 * 1024),)),
-    "M4 Max":   (18.4, 546.0,  (CacheSpec("SLC", 1200e9, 48 * 1024 * 1024),)),
+    "M1": (2.6, 68.25, (CacheSpec("SLC", 200e9, 8 * 1024 * 1024),)),
+    "M1 Pro": (5.2, 200.0, (CacheSpec("SLC", 400e9, 24 * 1024 * 1024),)),
+    "M1 Max": (10.4, 400.0, (CacheSpec("SLC", 800e9, 48 * 1024 * 1024),)),
+    "M1 Ultra": (21.2, 800.0, (CacheSpec("SLC", 1600e9, 96 * 1024 * 1024),)),
+    "M2": (3.6, 100.0, (CacheSpec("SLC", 250e9, 8 * 1024 * 1024),)),
+    "M2 Pro": (6.8, 200.0, (CacheSpec("SLC", 450e9, 24 * 1024 * 1024),)),
+    "M2 Max": (13.6, 400.0, (CacheSpec("SLC", 900e9, 48 * 1024 * 1024),)),
+    "M2 Ultra": (27.2, 800.0, (CacheSpec("SLC", 1800e9, 96 * 1024 * 1024),)),
+    "M3": (3.6, 100.0, (CacheSpec("SLC", 250e9, 8 * 1024 * 1024),)),
+    "M3 Pro": (7.4, 150.0, (CacheSpec("SLC", 400e9, 24 * 1024 * 1024),)),
+    "M3 Max": (14.2, 300.0, (CacheSpec("SLC", 800e9, 48 * 1024 * 1024),)),
+    "M4": (4.6, 120.0, (CacheSpec("SLC", 300e9, 8 * 1024 * 1024),)),
+    "M4 Pro": (9.2, 273.0, (CacheSpec("SLC", 600e9, 24 * 1024 * 1024),)),
+    "M4 Max": (18.4, 546.0, (CacheSpec("SLC", 1200e9, 48 * 1024 * 1024),)),
 }
-
 
 
 @dataclass
@@ -65,6 +64,7 @@ class DetectionResult:
 # ---------------------------------------------------------------------------
 # Bandwidth measurement
 # ---------------------------------------------------------------------------
+
 
 def _measure_bandwidth_gb_s(size_mb: int = 256, repeats: int = 5) -> float:
     """Return effective memory bandwidth in GB/s via a NumPy array copy.
@@ -98,13 +98,14 @@ def _measure_bandwidth_gb_s(size_mb: int = 256, repeats: int = 5) -> float:
 
     samples.sort()
     # Use the median of the top half to reduce OS scheduling noise.
-    top_half = samples[len(samples) // 2:]
+    top_half = samples[len(samples) // 2 :]
     return sum(top_half) / len(top_half)
 
 
 # ---------------------------------------------------------------------------
 # Platform probes
 # ---------------------------------------------------------------------------
+
 
 def _probe_apple_silicon() -> tuple[str | None, float | None, float | None, tuple[CacheSpec, ...]]:
     """Return (chip_name, peak_tflops, bandwidth_gb_s, caches) from system_profiler."""
@@ -146,9 +147,13 @@ def _probe_nvidia() -> tuple[float | None, float | None, tuple[CacheSpec, ...]]:
     try:
         # Compute clock (MHz) and memory bandwidth (GB/s) for device 0.
         clock_out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=clocks.max.sm,memory.total,clocks.max.mem",
-             "--format=csv,noheader,nounits"],
-            text=True, timeout=10,
+            [
+                "nvidia-smi",
+                "--query-gpu=clocks.max.sm,memory.total,clocks.max.mem",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            timeout=10,
         )
         parts = [p.strip() for p in clock_out.strip().split(",")]
         if len(parts) < 3:
@@ -177,13 +182,15 @@ def _probe_cpu_flops() -> tuple[int, float | None]:
     if shutil.which("sysctl"):
         # Try keys in priority order; Apple Silicon uses perflevel0 (P-core).
         for key in (
-            "hw.cpufrequency_max",               # Intel macOS
-            "hw.perflevel0.cpufrequency_max",    # Apple Silicon P-core
-            "hw.cpufrequency",                   # some Linux/BSD
+            "hw.cpufrequency_max",  # Intel macOS
+            "hw.perflevel0.cpufrequency_max",  # Apple Silicon P-core
+            "hw.cpufrequency",  # some Linux/BSD
         ):
             try:
                 out = subprocess.check_output(
-                    ["sysctl", "-n", key], text=True, timeout=5,
+                    ["sysctl", "-n", key],
+                    text=True,
+                    timeout=5,
                     stderr=subprocess.DEVNULL,
                 )
                 val = out.strip()
@@ -210,6 +217,7 @@ def _probe_cpu_flops() -> tuple[int, float | None]:
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, DetectionResult]:
     """Probe this machine and return a :class:`HardwareSpec` for roofline analysis.
@@ -238,10 +246,17 @@ def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, De
         source = f"Apple Silicon table ({chip_name}) + NumPy STREAM triad"
         cores, clock_hz = _probe_cpu_flops()
         return (
-            HardwareSpec(chip_name or "Apple Silicon", peak_flops, memory_bandwidth, caches=apple_caches),
+            HardwareSpec(
+                chip_name or "Apple Silicon", peak_flops, memory_bandwidth, caches=apple_caches
+            ),
             DetectionResult(
-                chip_name, cores, clock_hz,
-                measured_bw, peak_flops, memory_bandwidth, source,
+                chip_name,
+                cores,
+                clock_hz,
+                measured_bw,
+                peak_flops,
+                memory_bandwidth,
+                source,
             ),
         )
 
@@ -254,8 +269,13 @@ def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, De
         return (
             HardwareSpec("NVIDIA GPU", nvidia_flops, memory_bandwidth, caches=nvidia_caches),
             DetectionResult(
-                None, cores, clock_hz,
-                measured_bw, nvidia_flops, memory_bandwidth, source,
+                None,
+                cores,
+                clock_hz,
+                measured_bw,
+                nvidia_flops,
+                memory_bandwidth,
+                source,
             ),
         )
 
@@ -277,7 +297,12 @@ def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, De
     return (
         HardwareSpec("CPU", peak_flops, memory_bandwidth),
         DetectionResult(
-            chip_name, cores, clock_hz,
-            measured_bw, peak_flops, memory_bandwidth, source,
+            chip_name,
+            cores,
+            clock_hz,
+            measured_bw,
+            peak_flops,
+            memory_bandwidth,
+            source,
         ),
     )

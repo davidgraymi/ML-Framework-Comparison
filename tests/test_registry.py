@@ -25,7 +25,6 @@ def test_get_adapter_torch_fx():
     assert adapter.name == "pytorch-fx"
 
 
-
 def test_get_adapter_jax():
     adapter = get_adapter("jax")
     assert isinstance(adapter, JaxAdapter)

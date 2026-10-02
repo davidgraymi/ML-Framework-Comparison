@@ -1,4 +1,5 @@
 """Adapter discovery and factory."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -14,7 +15,6 @@ _ADAPTER_MAP: dict[str, tuple[str, str]] = {
     "tensorflow": ("neural_cost.adapters.tensorflow", "TensorFlowAdapter"),
     "tf": ("neural_cost.adapters.tensorflow", "TensorFlowAdapter"),
 }
-
 
 
 _PACKAGE_MAP: dict[str, str] = {
@@ -44,7 +44,9 @@ def get_adapter(name: str) -> FrameworkAdapter:
     module_path, class_name = _ADAPTER_MAP[key]
     package = _PACKAGE_MAP.get(key, key)
     if importlib.util.find_spec(package) is None:
-        raise ImportError(f"Framework {package!r} is not installed. Install it with: pip install neural-cost[{package}]")
+        raise ImportError(
+            f"Framework {package!r} is not installed. Install it with: pip install neural-cost[{package}]"
+        )
     module = importlib.import_module(module_path)
     adapter_class = getattr(module, class_name)
     return adapter_class()
@@ -62,4 +64,3 @@ def available_adapters() -> list[str]:
         if importlib.util.find_spec(package) is not None:
             result.append(key)
     return result
-

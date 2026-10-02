@@ -58,30 +58,42 @@ class GapAnalysis:
         if self.fused_lower_bound_seconds is not None:
             lines.append(
                 f"  fused bound: {self.fused_lower_bound_seconds * 1e3:.3f} ms"
-                + (f" (efficiency {self.fused_efficiency:.1%})" if self.fused_efficiency is not None else "")
+                + (
+                    f" (efficiency {self.fused_efficiency:.1%})"
+                    if self.fused_efficiency is not None
+                    else ""
+                )
             )
         if self.resident_cache_level and self.cache_bound_seconds is not None:
             lines.append(
                 f"  cache residency: {self.resident_cache_level} "
                 f"(bound {self.cache_bound_seconds * 1e3:.3f} ms"
-                + (f", efficiency {self.cache_efficiency:.1%}" if self.cache_efficiency is not None else "")
+                + (
+                    f", efficiency {self.cache_efficiency:.1%}"
+                    if self.cache_efficiency is not None
+                    else ""
+                )
                 + ")"
             )
-        lines.extend([
-            f"  observed: {self.observed_seconds * 1e3:.3f} ms",
-            f"  roofline efficiency: {self.efficiency:.1%} ({self.bottleneck}-bound)",
-            (
-                f"  achieved: {self.achieved_flops / 1e9:.3f} GFLOP/s, "
-                f"{self.achieved_bandwidth / 1e9:.3f} GB/s"
-            ),
-        ])
+        lines.extend(
+            [
+                f"  observed: {self.observed_seconds * 1e3:.3f} ms",
+                f"  roofline efficiency: {self.efficiency:.1%} ({self.bottleneck}-bound)",
+                (
+                    f"  achieved: {self.achieved_flops / 1e9:.3f} GFLOP/s, "
+                    f"{self.achieved_bandwidth / 1e9:.3f} GB/s"
+                ),
+            ]
+        )
         if self.layer_analyses:
             lines.append("  top layer bottlenecks:")
-            sorted_layers = sorted(self.layer_analyses, key=lambda l: l.time_share_ratio, reverse=True)[:3]
-            for idx, l in enumerate(sorted_layers, 1):
+            sorted_layers = sorted(
+                self.layer_analyses, key=lambda layer: layer.time_share_ratio, reverse=True
+            )[:3]
+            for idx, layer in enumerate(sorted_layers, 1):
                 lines.append(
-                    f"    {idx}. {l.name} ({l.kind}): {l.lower_bound_seconds * 1e3:.3f} ms "
-                    f"({l.time_share_ratio:.1%} share, {l.bottleneck}-bound, AI: {l.arithmetic_intensity:.1f} FLOP/B)"
+                    f"    {idx}. {layer.name} ({layer.kind}): {layer.lower_bound_seconds * 1e3:.3f} ms "
+                    f"({layer.time_share_ratio:.1%} share, {layer.bottleneck}-bound, AI: {layer.arithmetic_intensity:.1f} FLOP/B)"
                 )
         lines.extend(f"  next: {finding}" for finding in self.findings)
         return "\n".join(lines)
@@ -173,7 +185,7 @@ def analyze_gap(
     if operations is not None:
         layer_analyses = analyze_layers_gap(operations, hardware)
         if layer_analyses:
-            top_layer = max(layer_analyses, key=lambda l: l.time_share_ratio)
+            top_layer = max(layer_analyses, key=lambda layer: layer.time_share_ratio)
             findings.append(
                 f"Top bottleneck layer: '{top_layer.name}' ({top_layer.kind}) accounts for "
                 f"{top_layer.time_share_ratio:.1%} of theoretical execution time ({top_layer.bottleneck}-bound)."
@@ -208,13 +220,21 @@ def analyze_gap(
         )
 
     if bottleneck == "memory":
-        findings.append("Memory-bound: consider fusion, reduced precision, or fewer materialized tensors.")
+        findings.append(
+            "Memory-bound: consider fusion, reduced precision, or fewer materialized tensors."
+        )
     else:
-        findings.append("Compute-bound: consider faster kernels, tensor cores, or greater parallelism.")
+        findings.append(
+            "Compute-bound: consider faster kernels, tensor cores, or greater parallelism."
+        )
     if efficiency < 0.5:
-        findings.append("Large roofline gap: inspect launch overhead, synchronization, shape padding, and data movement.")
+        findings.append(
+            "Large roofline gap: inspect launch overhead, synchronization, shape padding, and data movement."
+        )
     if hardware.memory_capacity is not None and estimate.total_bytes > hardware.memory_capacity:
-        findings.append("Compulsory traffic exceeds device memory capacity; partitioning or offload may be required.")
+        findings.append(
+            "Compulsory traffic exceeds device memory capacity; partitioning or offload may be required."
+        )
     return GapAnalysis(
         lower_bound,
         compute,
@@ -232,8 +252,6 @@ def analyze_gap(
         fused_efficiency=fused_efficiency,
         layer_analyses=layer_analyses,
     )
-
-
 
 
 def analyze_memory_gap(estimate: MemoryEstimate, measurement: Measurement) -> MemoryGapAnalysis:
@@ -260,7 +278,9 @@ def analyze_memory_gap(estimate: MemoryEstimate, measurement: Measurement) -> Me
         else:
             findings.append("Observed peak is near the conservative static tensor-storage bound.")
     if reserved is not None and observed is not None and reserved > observed:
-        findings.append("Reserved memory exceeds allocated memory; the caching allocator retains a pool.")
+        findings.append(
+            "Reserved memory exceeds allocated memory; the caching allocator retains a pool."
+        )
     return MemoryGapAnalysis(
         estimate.inference_minimum_bytes,
         estimate.inference_conservative_bytes,
@@ -280,5 +300,3 @@ def analyze_model_gap(
         analyze_gap(cost_to_analyze, measurement, hardware, operations=profile.operations),
         analyze_memory_gap(profile.memory, measurement),
     )
-
-

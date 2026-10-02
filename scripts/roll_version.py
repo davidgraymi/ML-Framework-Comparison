@@ -149,7 +149,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--initial", default="0.1.0", help="Initial version if no tags exist")
     parser.add_argument("--dry-run", action="store_true", help="Calculate version without tagging")
     parser.add_argument("--tag", action="store_true", help="Create the git tag if version rolled")
-    parser.add_argument("--push", action="store_true", help="Push the tag to remote (used with --tag)")
+    parser.add_argument(
+        "--push", action="store_true", help="Push the tag to remote (used with --tag)"
+    )
     parser.add_argument("--remote", default="origin", help="Remote to push to (default: origin)")
     args = parser.parse_args(argv)
 

@@ -12,6 +12,7 @@ class MockAdapter(FrameworkAdapter):
     def operations(self, model, example_inputs):
         yield Operation("fc", "linear", ((4, 8), (8, 16)), (4, 16), dtype_bytes=4)
 
+
 class ModelTests(unittest.TestCase):
     def test_profile_model(self):
         adapter = MockAdapter()
@@ -37,12 +38,13 @@ class ModelTests(unittest.TestCase):
         adapter = MockAdapter()
         mock_estimate_operations.return_value = CostEstimate(1024, 640, 256, 1)
         mock_estimate_memory.return_value = MemoryEstimate(0, 0, 0, 0)
-        
+
         profile = profile_model("model", [], adapter)
-        
+
         mock_estimate_operations.assert_called_once()
         mock_estimate_memory.assert_called_once()
         self.assertEqual(profile.cost.flops, 1024)
+
 
 if __name__ == "__main__":
     unittest.main()

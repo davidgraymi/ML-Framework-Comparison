@@ -79,9 +79,14 @@ class HardwareDetectTests(unittest.TestCase):
         from neural_cost.hardware import CacheSpec
 
         mock_measure.return_value = 100.0
-        mock_apple.return_value = ("Apple M3", 3.6e12, 100e9, (CacheSpec("SLC", 250e9, 8 * 1024 * 1024),))
+        mock_apple.return_value = (
+            "Apple M3",
+            3.6e12,
+            100e9,
+            (CacheSpec("SLC", 250e9, 8 * 1024 * 1024),),
+        )
         mock_cpu.return_value = (8, 3e9)
-        
+
         spec, result = detect_hardware(bandwidth_benchmark_mb=1)
         self.assertIsInstance(spec, HardwareSpec)
         self.assertIsInstance(result, DetectionResult)
@@ -90,6 +95,7 @@ class HardwareDetectTests(unittest.TestCase):
         self.assertEqual(spec.memory_bandwidth, 100e9)
         self.assertEqual(len(spec.caches), 1)
         self.assertEqual(result.chip_name, "Apple M3")
+
 
 if __name__ == "__main__":
     unittest.main()

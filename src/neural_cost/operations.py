@@ -41,8 +41,7 @@ class Operation:
         valid_kinds = get_args(OperationKind)
         if self.kind not in valid_kinds:
             raise ValueError(
-                f"unsupported operation kind {self.kind!r}; "
-                f"must be one of {valid_kinds}"
+                f"unsupported operation kind {self.kind!r}; must be one of {valid_kinds}"
             )
         if self.dtype_bytes <= 0:
             raise ValueError("dtype_bytes must be positive")

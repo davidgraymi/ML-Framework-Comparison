@@ -40,8 +40,15 @@ class EstimateTests(unittest.TestCase):
         op1 = Operation("add", "elementwise", ((10,), (10,)), (10,), dtype_bytes=4)
         est1 = estimate_operations([op1])
         self.assertEqual(est1.flops, 10)  # default 1 flop per element
-        
-        op2 = Operation("add", "elementwise", ((10,), (10,)), (10,), dtype_bytes=4, attrs={"flops_per_element": 3})
+
+        op2 = Operation(
+            "add",
+            "elementwise",
+            ((10,), (10,)),
+            (10,),
+            dtype_bytes=4,
+            attrs={"flops_per_element": 3},
+        )
         est2 = estimate_operations([op2])
         self.assertEqual(est2.flops, 30)
 
@@ -119,4 +126,3 @@ class EstimateTests(unittest.TestCase):
         self.assertEqual(fused.total_bytes, 0)
         self.assertEqual(fused.eliminated_bytes, 0)
         self.assertEqual(fused.fused_groups_count, 0)
-

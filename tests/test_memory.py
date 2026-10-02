@@ -13,7 +13,9 @@ from neural_cost.adapters.base import FrameworkAdapter
 
 
 class StaticAdapter(FrameworkAdapter):
-    def operations(self, model: object, example_inputs: tuple[object, ...]) -> tuple[Operation, ...]:
+    def operations(
+        self, model: object, example_inputs: tuple[object, ...]
+    ) -> tuple[Operation, ...]:
         return (Operation("fc", "linear", ((2, 4), (4, 3)), (2, 3)),)
 
 
@@ -39,9 +41,7 @@ class MemoryEstimateTests(unittest.TestCase):
         self.assertEqual(estimate.training_minimum_bytes, 264)
 
     def test_memory_gap_reports_allocator_overhead(self) -> None:
-        estimate = estimate_memory(
-            [Operation("fc", "linear", ((2, 4), (4, 3)), (2, 3))]
-        )
+        estimate = estimate_memory([Operation("fc", "linear", ((2, 4), (4, 3)), (2, 3))])
         result = analyze_memory_gap(
             estimate,
             Measurement(

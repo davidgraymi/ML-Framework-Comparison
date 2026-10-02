@@ -12,7 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv run --extra dev ruff check src/ tests/ scripts/
+      - name: Check code formatting and linting
+        run: uv run --extra dev python scripts/format.py --check
 
   test:
     runs-on: ${{ matrix.os }}

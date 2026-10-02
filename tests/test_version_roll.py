@@ -58,7 +58,9 @@ def test_determine_next_version_in_git_repo(tmp_path: Path):
     run_git("commit", "-m", "initial commit")
 
     # 1. No tags yet -> initial version
-    rolled, cur, next_v, tag, bump = determine_next_version(cwd=str(tmp_path), initial_version="0.1.0")
+    rolled, cur, next_v, tag, bump = determine_next_version(
+        cwd=str(tmp_path), initial_version="0.1.0"
+    )
     assert rolled is True
     assert next_v == "0.1.0"
     assert tag == "v0.1.0"
