@@ -419,10 +419,107 @@ def fig_throughput_scaling(hw: dict, records: list[dict]) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Figure GPU-8: GPU-vs-CPU crossover (batch size where GPU first wins)
+# ---------------------------------------------------------------------------
+
+def fig_crossover(hw: dict, records: list[dict], crossover: dict | None) -> Path | None:
+    """Plot GPU and CPU latency curves together, annotating the crossover point.
+
+    If crossover data is not available (CPU baseline not collected), returns None.
+    """
+    if not crossover:
+        return None
+
+    # We need at least one (fw, arch) pair that has CPU data in the crossover dict.
+    has_cpu_data = any(
+        pt.get("cpu_ms") is not None
+        for fw_data in crossover.values()
+        for arch_data in fw_data.values()
+        for pt in arch_data.get("data", [])
+    )
+    if not has_cpu_data:
+        return None
+
+    n_archs = len(ARCHS)
+    fig, axes = plt.subplots(1, n_archs, figsize=(14, 4), sharey=False)
+
+    for ax, arch in zip(axes, ARCHS):
+        for fw in FRAMEWORKS:
+            info = crossover.get(fw, {}).get(arch, {})
+            pts  = info.get("data", [])
+            if not pts:
+                continue
+
+            gpu_xs = [p["batch"] for p in pts]
+            gpu_ys = [p["gpu_ms"] for p in pts]
+            cpu_ys = [p.get("cpu_ms") for p in pts]
+
+            # GPU line
+            ax.plot(gpu_xs, gpu_ys, "o-", color=FW_COLORS[fw],
+                    lw=1.8, ms=5, label=f"{fw} GPU")
+
+            # CPU dashed line (same colour, dashed)
+            cpu_valid = [(x, y) for x, y in zip(gpu_xs, cpu_ys) if y is not None]
+            if cpu_valid:
+                cx, cy = zip(*cpu_valid)
+                ax.plot(cx, cy, "--", color=FW_COLORS[fw],
+                        lw=1.4, alpha=0.55, label=f"{fw} CPU")
+
+            # Annotate crossover batch
+            cb = info.get("crossover_batch")
+            if cb:
+                cb_pt = next((p for p in pts if p["batch"] == cb), None)
+                if cb_pt and cb_pt.get("cpu_ms"):
+                    ax.axvline(cb, color=FW_COLORS[fw], lw=1, ls=":", alpha=0.7)
+                    ax.annotate(
+                        f"B={cb}",
+                        (cb, cb_pt["gpu_ms"]),
+                        textcoords="offset points", xytext=(4, -12),
+                        fontsize=7, color=FW_COLORS[fw],
+                    )
+
+        ax.set_title(arch, fontsize=9, fontweight="bold")
+        ax.set_xlabel("Batch size")
+        ax.set_xscale("log", base=2)
+        ax.set_yscale("log")
+        valid_xs = [p["batch"] for fw_d in crossover.values()
+                    for a_d in fw_d.values()
+                    for p in a_d.get("data", [])
+                    if a_d.get("data") and p.get("gpu_ms") is not None]
+        if valid_xs:
+            ax.set_xticks(sorted(set(valid_xs)))
+        ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
+
+    axes[0].set_ylabel("Median Latency (ms, log scale)")
+
+    # Build a compact legend (GPU solid / CPU dashed) using framework colours
+    from matplotlib.lines import Line2D
+    legend_elems = []
+    for fw in FRAMEWORKS:
+        legend_elems.append(
+            Line2D([0], [0], color=FW_COLORS[fw], lw=2, label=f"{fw}")
+        )
+    legend_elems.append(Line2D([0], [0], color="k", lw=1.5, ls="-",  label="GPU"))
+    legend_elems.append(Line2D([0], [0], color="k", lw=1.5, ls="--", label="CPU"))
+    fig.legend(handles=legend_elems, loc="upper center",
+               ncol=len(FRAMEWORKS) + 2, bbox_to_anchor=(0.5, 1.05), framealpha=0.9)
+    fig.suptitle(
+        f"GPU-vs-CPU Crossover — {hw['name']}  (vertical dotted line = first batch where GPU wins)",
+        fontweight="bold", y=1.1,
+    )
+    fig.tight_layout()
+    out = FIG_DIR / "gpu_fig8_crossover.png"
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Build markdown report
 # ---------------------------------------------------------------------------
 
-def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> str:
+def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path],
+                 crossover: dict | None = None) -> str:
     def rel(p: Path) -> str:
         return str(p.relative_to(REPO_ROOT))
 
@@ -502,6 +599,30 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
                     f"at {best_ms:.3f} ms (batch={ref_batch})"
                 )
         return "\n".join(lines)
+
+    def crossover_table() -> str:
+        """Markdown table summarising the GPU-vs-CPU crossover batch sizes."""
+        if not crossover:
+            return (
+                "_No crossover data available.  "
+                "Re-run with `--crossover` after collecting CPU baseline._"
+            )
+        rows = [
+            "| Architecture | Framework | Crossover batch | Notes |",
+            "|---|---|---|---|",
+        ]
+        for fw in FRAMEWORKS:
+            for arch in ARCHS:
+                info = crossover.get(fw, {}).get(arch, {})
+                cb   = info.get("crossover_batch")
+                tag  = f"≥ {cb}" if cb else "never"
+                note = ""
+                if cb:
+                    pt = next((p for p in info.get("data", []) if p["batch"] == cb), None)
+                    if pt and pt.get("cpu_ms") and pt.get("gpu_ms"):
+                        note = f"GPU {pt['cpu_ms']/pt['gpu_ms']:.2f}× faster"
+                rows.append(f"| {arch} | {fw} | {tag} | {note} |")
+        return "\n".join(rows)
 
     ridge = hw["ridge_point"]
     tf_device = hw.get("torch_device", hw["name"])
@@ -684,8 +805,56 @@ On CPU, Python dispatch overhead is the dominant bottleneck. On GPU, compilation
 | **JAX** | XLA GPU backend — strong GEMM, improving conv | `jax.jit()` native |
 | **TensorFlow** | cuDNN / XLA — competitive for dense workloads | `tf.function(jit_compile=True)` |
 
+### 5. JAX MPS support — known limitations
+
+JAX's MPS (Apple Metal) backend is experimental and **not production-ready**.
+Two issues are visible in the data:
+
+1. **CNN JIT regression (0.33× speedup)** — XLA's Metal convolution lowering inserts
+   additional memory-layout transposes for statically-shaped MPS graphs.  The eager
+   path avoids this by dispatching directly to Metal's optimised conv kernel.
+2. **JAX falls back to CPU without a plugin** — unlike PyTorch, JAX requires an
+   explicit GPU plugin on Apple Silicon:
+   - `pip install jax-metal` (official Apple plugin — tied to specific jaxlib versions)
+   - `pip install jax-mps` (community MLX backend — set `JAX_PLATFORMS=mps`)
+   Without a plugin installed, JAX silently runs on CPU; the benchmark now emits a
+   clear diagnostic when this happens (see `_check_jax_mps_driver()`).
+
 ---
 
+## Figure GPU-8 — GPU-vs-CPU Crossover (batch size where GPU wins)
+"""
+    # Figure GPU-8 is optional — only emitted when crossover data is present
+    if "crossover" in fig_paths and fig_paths["crossover"] is not None:
+        md += f"""
+![GPU-vs-CPU Crossover]({rel(fig_paths['crossover'])})
+
+Each panel shows GPU latency (solid) vs CPU latency (dashed) across the batch-size grid.
+Vertical dotted lines mark the first batch at which GPU latency drops below CPU latency.
+
+### Crossover batch sizes
+
+{crossover_table()}
+
+> **Reading the table:** "never" means the GPU did not outperform the CPU at any
+> tested batch size with this architecture + framework combination, typically because
+> kernel launch overhead dominates at all tested sizes (e.g. very small FF DNN models).
+
+---
+"""
+    else:
+        md += """
+_Crossover figure not available.  Re-run with `--crossover` flag to generate it:_
+
+```bash
+python benchmarks/collect_data.py          # generate CPU baseline first
+python benchmarks/collect_gpu_data.py --crossover
+```
+
+---
+"""
+
+    md += """
 *Generated by `benchmarks/generate_gpu_report.py` using [neural-cost](https://github.com/davidgraymi/neural-cost)*
 """
     return md
@@ -700,8 +869,14 @@ def main() -> None:
     hw, records = load(DATA_FILE)
     print(f"  {len(records)} records  ·  {hw['name']}")
 
+    # Load crossover data if it was collected with --crossover
+    raw_json = json.loads(DATA_FILE.read_text())
+    crossover: dict | None = raw_json.get("crossover")
+    if crossover:
+        print("  crossover data present in JSON")
+
     print("Generating GPU figures…")
-    fig_paths = {
+    fig_paths: dict[str, Path | None] = {
         "roofline":           fig_roofline(hw, records),
         "latency_bars":       fig_latency_bars(hw, records),
         "heatmap":            fig_efficiency_heatmap(hw, records),
@@ -709,15 +884,20 @@ def main() -> None:
         "speedup":            fig_speedup(hw, records),
         "throughput":         fig_throughput(hw, records),
         "throughput_scaling": fig_throughput_scaling(hw, records),
+        "crossover":          fig_crossover(hw, records, crossover),
     }
     for name, p in fig_paths.items():
-        print(f"  {name}: {p}")
+        if p is not None:
+            print(f"  {name}: {p}")
+        else:
+            print(f"  {name}: (skipped — no data)")
 
     print("Building GPU report…")
-    report = build_report(hw, records, fig_paths)
+    report = build_report(hw, records, fig_paths, crossover=crossover)
     REPORT_FILE.write_text(report)
     print(f"  Report written → {REPORT_FILE}")
 
 
 if __name__ == "__main__":
     main()
+

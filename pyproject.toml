@@ -7,7 +7,7 @@ name = "neural-cost"
 dynamic = ["version"]
 description = "Theoretical and measured memory/compute analysis for neural networks."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Neural Cost contributors" }]
 classifiers = [
@@ -20,6 +20,11 @@ dependencies = []
 [project.optional-dependencies]
 torch = ["torch>=2.0"]
 jax = ["jax>=0.4"]
+# Apple Silicon JAX GPU plugins — install one of these to run JAX on MPS/Metal.
+# jax-metal is the official Apple plugin; jax-mps is a community MLX-based backend.
+# Without one of these, JAX silently falls back to CPU on Apple Silicon.
+jax-metal = ["jax>=0.4", "jax-metal"]
+jax-mps = ["jax>=0.4", "jax-mps"]
 tensorflow = ["tensorflow>=2.12"]
 dev = ["pytest>=7.4", "ruff>=0.4"]
 
@@ -43,7 +48,7 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [dependency-groups]
 dev = [
