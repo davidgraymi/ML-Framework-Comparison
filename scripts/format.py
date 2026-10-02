@@ -17,16 +17,34 @@ DEFAULT_PATHS = ["src", "tests", "scripts"]
 
 
 def run_command(cmd: list[str], cwd: Path) -> int:
-    """Run a command using ruff binary or python -m ruff."""
-    ruff_exec = ["ruff"]
-    full_cmd = ruff_exec + cmd[1:]
+    """Run a command using venv ruff, PATH ruff, uv run ruff, or python -m ruff."""
+    # 1. Check local virtualenv
+    for venv_candidate in [cwd / ".venv" / "bin" / "ruff", cwd / ".venv" / "Scripts" / "ruff.exe"]:
+        if venv_candidate.exists():
+            res = subprocess.run([str(venv_candidate), *cmd[1:]], cwd=cwd, check=False)
+            return res.returncode
+
+    # 2. Try ruff in system PATH
     try:
-        res = subprocess.run(full_cmd, cwd=cwd, check=False)
+        res = subprocess.run(["ruff", *cmd[1:]], cwd=cwd, check=False)
         return res.returncode
     except FileNotFoundError:
-        # Fallback to python -m ruff
-        res = subprocess.run([sys.executable, "-m", "ruff", *cmd[1:]], cwd=cwd, check=False)
+        pass
+
+    # 3. Try uv run ruff
+    try:
+        res = subprocess.run(
+            ["uv", "run", "--extra", "dev", "ruff", *cmd[1:]],
+            cwd=cwd,
+            check=False,
+        )
         return res.returncode
+    except FileNotFoundError:
+        pass
+
+    # 4. Fallback to current python -m ruff
+    res = subprocess.run([sys.executable, "-m", "ruff", *cmd[1:]], cwd=cwd, check=False)
+    return res.returncode
 
 
 def main(argv: list[str] | None = None) -> int:
