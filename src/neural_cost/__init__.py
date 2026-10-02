@@ -10,7 +10,7 @@ from .analysis import (
     analyze_model_gap,
 )
 from .api import estimate_model
-from .estimate import CostEstimate, estimate_operations
+from .estimate import CostEstimate, FusedCostEstimate, estimate_fused_operations, estimate_operations
 from .hardware import CacheSpec, HardwareSpec
 from .hardware_detect import DetectionResult, detect_hardware
 from .memory import MemoryEstimate, estimate_memory
@@ -22,6 +22,7 @@ __all__ = [
     "CacheSpec",
     "CostEstimate",
     "DetectionResult",
+    "FusedCostEstimate",
     "GapAnalysis",
     "HardwareSpec",
     "Measurement",
@@ -36,6 +37,7 @@ __all__ = [
     "available_adapters",
     "benchmark",
     "detect_hardware",
+    "estimate_fused_operations",
     "estimate_memory",
     "estimate_model",
     "estimate_operations",
