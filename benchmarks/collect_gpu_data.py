@@ -42,7 +42,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from neural_cost import (
     HardwareSpec,
+    Measurement,
     analyze_gap,
+    analyze_memory_gap,
     estimate_fused_operations,
     profile_model,
 )
@@ -108,6 +110,11 @@ class BenchRecord:
     cache_bound_ms:     float | None = None
     top_layer_bottleneck: str | None = None
     top_layer_share_pct: float | None = None
+    peak_allocated_bytes: int | None = None
+    peak_reserved_bytes: int | None = None
+    memory_overhead_ratio: float | None = None
+    theoretical_min_bytes: int | None = None
+    theoretical_conservative_bytes: int | None = None
 
 
 def _make_gpu_bench_record(
@@ -119,31 +126,42 @@ def _make_gpu_bench_record(
     prof: Any,
     gap: Any,
     st: dict[str, float],
+    peak_alloc: int | None = None,
+    peak_res: int | None = None,
 ) -> BenchRecord:
     fused_lb_ms = (
         round(gap.fused_lower_bound_seconds * 1e3, 3)
-        if gap.fused_lower_bound_seconds is not None
+        if getattr(gap, "fused_lower_bound_seconds", None) is not None
         else None
     )
     traffic_red_pct = None
-    if gap.fused_lower_bound_seconds is not None and getattr(prof, "operations", None):
+    if getattr(gap, "fused_lower_bound_seconds", None) is not None and getattr(prof, "operations", None):
         fused_est = estimate_fused_operations(prof.operations)
         traffic_red_pct = round(fused_est.traffic_reduction_ratio * 100, 1)
 
-    cache_resident = gap.resident_cache_level is not None
-    cache_name = gap.resident_cache_level
+    cache_resident = getattr(gap, "resident_cache_level", None) is not None
+    cache_name = getattr(gap, "resident_cache_level", None)
     cache_bound_ms = (
         round(gap.cache_bound_seconds * 1e3, 3)
-        if gap.cache_bound_seconds is not None
+        if getattr(gap, "cache_bound_seconds", None) is not None
         else None
     )
 
     top_layer_bneck = None
     top_layer_share = None
-    if gap.layer_analyses:
+    if getattr(gap, "layer_analyses", None):
         top_l = max(gap.layer_analyses, key=lambda l: l.time_share_ratio)
         top_layer_bneck = f"{top_l.name} ({top_l.kind}, {top_l.bottleneck}-bound)"
         top_layer_share = round(top_l.time_share_ratio * 100, 1)
+
+    theo_min = None
+    theo_cons = None
+    ratio = None
+    if hasattr(prof, "memory") and prof.memory is not None:
+        theo_min = getattr(prof.memory, "inference_minimum_bytes", None)
+        theo_cons = getattr(prof.memory, "inference_conservative_bytes", None)
+        if peak_alloc is not None and theo_min is not None and theo_min > 0:
+            ratio = round(peak_alloc / theo_min, 4)
 
     return BenchRecord(
         framework=framework,
@@ -164,7 +182,7 @@ def _make_gpu_bench_record(
         achieved_gflops=gap.achieved_flops / 1e9,
         achieved_gbw=gap.achieved_bandwidth / 1e9,
         bottleneck=gap.bottleneck,
-        fused_efficiency=gap.fused_efficiency,
+        fused_efficiency=getattr(gap, "fused_efficiency", None),
         fused_lower_bound_ms=fused_lb_ms,
         traffic_reduction_pct=traffic_red_pct,
         cache_resident=cache_resident,
@@ -172,6 +190,11 @@ def _make_gpu_bench_record(
         cache_bound_ms=cache_bound_ms,
         top_layer_bottleneck=top_layer_bneck,
         top_layer_share_pct=top_layer_share,
+        peak_allocated_bytes=peak_alloc,
+        peak_reserved_bytes=peak_res,
+        memory_overhead_ratio=ratio,
+        theoretical_min_bytes=theo_min,
+        theoretical_conservative_bytes=theo_cons,
     )
 
 
@@ -185,9 +208,11 @@ def _cuda_event_block(
     warmup: int,
     repeats: int,
     device: Any,
-) -> list[float]:
-    """Use CUDA events for sub-millisecond GPU kernel timing."""
+) -> tuple[list[float], int | None, int | None]:
+    """Use CUDA events for sub-millisecond GPU kernel timing and collect allocator telemetry."""
     import torch
+    # Reset peak stats before run
+    torch.cuda.reset_peak_memory_stats(device)
     # Warmup — lets CUDA driver warm up and torch.compile finish tracing.
     for _ in range(warmup):
         fn(*args)
@@ -202,7 +227,10 @@ def _cuda_event_block(
         end.record()
         torch.cuda.synchronize(device)
         samples.append(start.elapsed_time(end))  # milliseconds
-    return samples
+
+    peak_allocated = int(torch.cuda.max_memory_allocated(device))
+    peak_reserved = int(torch.cuda.max_memory_reserved(device))
+    return samples, peak_allocated, peak_reserved
 
 
 def _mps_block(
@@ -210,8 +238,8 @@ def _mps_block(
     args: tuple,
     warmup: int,
     repeats: int,
-) -> list[float]:
-    """Apple MPS has no CUDA events — use perf_counter with MPS sync."""
+) -> tuple[list[float], int | None, int | None]:
+    """Apple MPS has no CUDA events — use perf_counter with MPS sync and allocator telemetry."""
     import torch
     for _ in range(warmup):
         fn(*args)
@@ -223,7 +251,10 @@ def _mps_block(
         fn(*args)
         torch.mps.synchronize()
         samples.append((time.perf_counter_ns() - t0) / 1e6)
-    return samples
+
+    peak_allocated = int(torch.mps.current_allocated_memory())
+    peak_reserved = int(torch.mps.driver_allocated_memory())
+    return samples, peak_allocated, peak_reserved
 
 
 def _cpu_block(
@@ -231,7 +262,8 @@ def _cpu_block(
     args: tuple,
     warmup: int,
     repeats: int,
-) -> list[float]:
+) -> tuple[list[float], int | None, int | None]:
+    import torch
     for _ in range(warmup):
         fn(*args)
     samples: list[float] = []
@@ -239,10 +271,29 @@ def _cpu_block(
         t0 = time.perf_counter_ns()
         fn(*args)
         samples.append((time.perf_counter_ns() - t0) / 1e6)
-    return samples
+
+    try:
+        with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU],
+            profile_memory=True,
+        ) as prof:
+            fn(*args)
+        events = prof.events()
+        act_allocs = [e.cpu_memory_usage for e in events if e.cpu_memory_usage > 0]
+        param_bytes = 0
+        if hasattr(fn, "parameters") and callable(fn.parameters):
+            param_bytes = sum(p.numel() * p.element_size() for p in fn.parameters())
+        peak_allocated = int(param_bytes + sum(act_allocs))
+        peak_reserved = peak_allocated
+    except Exception:
+        peak_allocated = None
+        peak_reserved = None
+    return samples, peak_allocated, peak_reserved
 
 
-def _jax_block(fn: Callable, args: tuple, warmup: int, repeats: int) -> list[float]:
+def _jax_block(
+    fn: Callable, args: tuple, warmup: int, repeats: int
+) -> tuple[list[float], int | None, int | None]:
     import jax
     def wait(v: Any) -> None:
         for leaf in jax.tree.leaves(v):
@@ -255,10 +306,32 @@ def _jax_block(fn: Callable, args: tuple, warmup: int, repeats: int) -> list[flo
         t0 = time.perf_counter_ns()
         wait(fn(*args))
         samples.append((time.perf_counter_ns() - t0) / 1e6)
-    return samples
+
+    peak_allocated = None
+    peak_reserved = None
+    try:
+        devices = jax.devices()
+        if devices and hasattr(devices[0], "memory_stats"):
+            stats = devices[0].memory_stats()
+            if stats:
+                peak_allocated = stats.get("peak_bytes_in_use") or stats.get("bytes_in_use")
+                peak_reserved = stats.get("bytes_limit") or stats.get("bytes_reserved")
+    except Exception:
+        pass
+    if peak_allocated is None:
+        try:
+            total_nbytes = sum(getattr(leaf, "nbytes", 0) for leaf in jax.tree.leaves(args))
+            if total_nbytes > 0:
+                peak_allocated = int(total_nbytes)
+                peak_reserved = peak_allocated
+        except Exception:
+            pass
+    return samples, peak_allocated, peak_reserved
 
 
-def _tf_block(fn: Callable, args: tuple, warmup: int, repeats: int) -> list[float]:
+def _tf_block(
+    fn: Callable, args: tuple, warmup: int, repeats: int
+) -> tuple[list[float], int | None, int | None]:
     import tensorflow as tf
     async_wait = getattr(tf.experimental, "async_wait", None)
     def wait():
@@ -271,7 +344,29 @@ def _tf_block(fn: Callable, args: tuple, warmup: int, repeats: int) -> list[floa
         t0 = time.perf_counter_ns()
         fn(*args); wait()
         samples.append((time.perf_counter_ns() - t0) / 1e6)
-    return samples
+
+    peak_allocated = None
+    peak_reserved = None
+    try:
+        gpus = tf.config.list_logical_devices("GPU")
+        if gpus:
+            info = tf.config.experimental.get_memory_info("GPU:0")
+            peak_allocated = info.get("peak")
+            peak_reserved = info.get("current") or peak_allocated
+    except Exception:
+        pass
+    if peak_allocated is None:
+        try:
+            total_bytes = 0
+            for a in args:
+                if hasattr(a, "numpy"):
+                    total_bytes += a.numpy().nbytes
+            if total_bytes > 0:
+                peak_allocated = int(total_bytes)
+                peak_reserved = peak_allocated
+        except Exception:
+            pass
+    return samples, peak_allocated, peak_reserved
 
 
 def _stats(samples: list[float]) -> dict[str, float]:
@@ -645,14 +740,20 @@ def _make_gap(
     st: dict,
     hardware: HardwareSpec,
     operations: Any = None,
+    peak_alloc: int | None = None,
+    peak_res: int | None = None,
 ) -> Any:
-    """Build a fake measurement object compatible with analyze_gap."""
+    """Build a measurement object compatible with analyze_gap."""
+    meas = Measurement(
+        median_seconds=st["median"] / 1e3,
+        samples_seconds=tuple(s / 1e3 for s in [st["median"]] * 2),
+        peak_memory_bytes=peak_alloc,
+        allocated_memory_bytes=peak_alloc,
+        reserved_memory_bytes=peak_res,
+    )
     return analyze_gap(
         cost,
-        type("M", (), {
-            "median_seconds":   st["median"] / 1e3,
-            "samples_seconds":  tuple(s / 1e3 for s in [st["median"]] * 2),
-        })(),
+        meas,
         hardware,
         operations=operations,
     )
@@ -698,7 +799,7 @@ def eval_torch_gpu(
             except Exception:
                 continue
 
-            def _time(fn: Callable, args: tuple) -> list[float]:
+            def _time(fn: Callable, args: tuple) -> tuple[list[float], int | None, int | None]:
                 if is_cuda:
                     return _cuda_event_block(fn, args, warmup, repeats, torch_device)
                 elif is_mps:
@@ -706,14 +807,17 @@ def eval_torch_gpu(
                 else:
                     return _cpu_block(fn, args, warmup, repeats)
 
+            theo_min = mem.inference_minimum_bytes
+            theo_cons = mem.inference_conservative_bytes
+
             # Baseline (eager GPU)
             try:
-                samp = _time(model, inputs)
+                samp, peak_alloc, peak_res = _time(model, inputs)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
                 records.append(
                     _make_gpu_bench_record(
-                        "PyTorch", "baseline", arch, batch, device_label, prof, gap, st
+                        "PyTorch", "baseline", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
                     )
                 )
             except Exception as exc:
@@ -734,12 +838,12 @@ def eval_torch_gpu(
                 else:
                     for _ in range(max(3, warmup)):
                         compiled(*inputs)
-                samp = _time(compiled, inputs)
+                samp, peak_alloc, peak_res = _time(compiled, inputs)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
                 records.append(
                     _make_gpu_bench_record(
-                        "PyTorch", "compiled", arch, batch, device_label, prof, gap, st
+                        "PyTorch", "compiled", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
                     )
                 )
             except Exception as exc:
@@ -780,14 +884,17 @@ def eval_jax_gpu(
             except Exception:
                 continue
 
+            theo_min = mem.inference_minimum_bytes
+            theo_cons = mem.inference_conservative_bytes
+
             # Baseline (eager on GPU device)
             try:
-                samp = _jax_block(model, inputs, warmup, repeats)
+                samp, peak_alloc, peak_res = _jax_block(model, inputs, warmup, repeats)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
                 records.append(
                     _make_gpu_bench_record(
-                        "JAX", "baseline", arch, batch, device_label, prof, gap, st
+                        "JAX", "baseline", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
                     )
                 )
             except Exception as exc:
@@ -803,12 +910,12 @@ def eval_jax_gpu(
                     if hasattr(leaf, "block_until_ready")
                 ]
                 wait(jit_model(*inputs))
-                samp = _jax_block(jit_model, inputs, warmup, repeats)
+                samp, peak_alloc, peak_res = _jax_block(jit_model, inputs, warmup, repeats)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
                 records.append(
                     _make_gpu_bench_record(
-                        "JAX", "jit", arch, batch, device_label, prof, gap, st
+                        "JAX", "jit", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
                     )
                 )
             except Exception as exc:
@@ -843,16 +950,18 @@ def eval_tensorflow_gpu(
             except Exception:
                 continue
 
+            theo_min = mem.inference_minimum_bytes
+            theo_cons = mem.inference_conservative_bytes
             fn = lambda *a: model(*a, training=False)
 
             # Baseline (eager GPU)
             try:
-                samp = _tf_block(fn, inputs, warmup, repeats)
+                samp, peak_alloc, peak_res = _tf_block(fn, inputs, warmup, repeats)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
                 records.append(
                     _make_gpu_bench_record(
-                        "TensorFlow", "baseline", arch, batch, device_label, prof, gap, st
+                        "TensorFlow", "baseline", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
                     )
                 )
             except Exception as exc:
@@ -864,12 +973,12 @@ def eval_tensorflow_gpu(
                 tf_fn = tf.function(fn, jit_compile=True)
                 for _ in range(3):
                     tf_fn(*inputs)
-                samp = _tf_block(tf_fn, inputs, warmup, repeats)
+                samp, peak_alloc, peak_res = _tf_block(tf_fn, inputs, warmup, repeats)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
                 records.append(
                     _make_gpu_bench_record(
-                        "TensorFlow", "tf.function+XLA", arch, batch, device_label, prof, gap, st
+                        "TensorFlow", "tf.function+XLA", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
                     )
                 )
             except Exception as exc:
@@ -878,12 +987,12 @@ def eval_tensorflow_gpu(
                     tf_fn = tf.function(fn, jit_compile=False)
                     for _ in range(3):
                         tf_fn(*inputs)
-                    samp = _tf_block(tf_fn, inputs, warmup, repeats)
+                    samp, peak_alloc, peak_res = _tf_block(tf_fn, inputs, warmup, repeats)
                     st   = _stats(samp)
-                    gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                    gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
                     records.append(
                         _make_gpu_bench_record(
-                            "TensorFlow", "tf.function", arch, batch, device_label, prof, gap, st
+                            "TensorFlow", "tf.function", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
                         )
                     )
                 except Exception as exc2:

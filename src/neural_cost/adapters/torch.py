@@ -241,31 +241,54 @@ class TorchAdapter(FrameworkAdapter):
             raise ValueError("warmup must be non-negative and repeats must be at least one")
         device = next((arg.device for arg in args if isinstance(arg, torch.Tensor)), None)
         is_cuda = device is not None and device.type == "cuda"
+        is_mps = device is not None and device.type == "mps"
         if is_cuda:
             torch.cuda.reset_peak_memory_stats(device)
+        elif is_mps:
+            torch.mps.synchronize()
         for _ in range(warmup):
             function(*args, **kwargs)
         if is_cuda:
             torch.cuda.synchronize(device)
+        elif is_mps:
+            torch.mps.synchronize()
         activities = [torch.profiler.ProfilerActivity.CPU]
         if is_cuda:
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         samples: list[float] = []
-        with torch.profiler.profile(activities=activities, profile_memory=is_cuda) as trace:
+        with torch.profiler.profile(
+            activities=activities,
+            profile_memory=is_cuda or (device is None or device.type == "cpu"),
+        ) as trace:
             for _ in range(repeats):
                 start = perf_counter_ns()
                 function(*args, **kwargs)
                 if is_cuda:
                     torch.cuda.synchronize(device)
+                elif is_mps:
+                    torch.mps.synchronize()
                 samples.append((perf_counter_ns() - start) / 1_000_000_000)
-        peak = torch.cuda.max_memory_allocated(device) if is_cuda else None
-        allocated = torch.cuda.memory_allocated(device) if is_cuda else None
-        reserved = torch.cuda.memory_reserved(device) if is_cuda else None
         events = trace.events()
         if is_cuda:
+            peak = torch.cuda.max_memory_allocated(device)
+            allocated = torch.cuda.memory_allocated(device)
+            reserved = torch.cuda.max_memory_reserved(device)
             device_time = sum(event.cuda_time_total for event in events) / 1_000_000
             event_count = sum(event.cuda_time_total > 0 for event in events)
+        elif is_mps:
+            peak = torch.mps.current_allocated_memory()
+            allocated = peak
+            reserved = torch.mps.driver_allocated_memory()
+            device_time = sum(event.cpu_time_total for event in events) / 1_000_000
+            event_count = len(events)
         else:
+            cpu_allocs = [e.cpu_memory_usage for e in events if e.cpu_memory_usage > 0]
+            param_bytes = 0
+            if hasattr(function, "parameters") and callable(function.parameters):
+                param_bytes = sum(p.numel() * p.element_size() for p in function.parameters())
+            peak = (param_bytes + sum(cpu_allocs)) if cpu_allocs else None
+            allocated = peak
+            reserved = peak
             device_time = sum(event.cpu_time_total for event in events) / 1_000_000
             event_count = len(events)
         return Measurement(

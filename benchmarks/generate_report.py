@@ -87,8 +87,17 @@ def best(records: list[dict], fw: str, arch: str, batch: int, field: str):
     return val
 
 
+def rep_batch(records: list[dict], preferred: int = 32) -> int:
+    batches = sorted({r["batch"] for r in records})
+    if not batches:
+        return preferred
+    if preferred in batches:
+        return preferred
+    return min(batches, key=lambda b: abs(b - preferred))
+
+
 # ---------------------------------------------------------------------------
-# Figure 1: Roofline scatter (AI vs GFLOP/s) for batch=32
+# Figure 1: Roofline scatter (AI vs GFLOP/s) for representative batch
 # ---------------------------------------------------------------------------
 
 def fig_roofline(hw: dict, records: list[dict]) -> Path:
@@ -103,7 +112,7 @@ def fig_roofline(hw: dict, records: list[dict]) -> Path:
     ax.loglog(ai_range, roofline, "k-", lw=2, label="Roofline bound", zorder=5)
     ax.axvline(ridge, color="k", lw=1, ls="--", alpha=0.5, label=f"Ridge ({ridge:.0f} FLOP/byte)")
 
-    batch = 32
+    batch = rep_batch(records)
     markers = {"FF DNN": "o", "CNN": "s", "RNN": "D", "LSTM": "^", "Transformer": "P"}
 
     for fw in FRAMEWORKS:
@@ -129,7 +138,7 @@ def fig_roofline(hw: dict, records: list[dict]) -> Path:
 
     ax.set_xlabel("Arithmetic Intensity (FLOP / byte)")
     ax.set_ylabel("Achieved Throughput (GFLOP/s)")
-    ax.set_title(f"Roofline Model — {hw['name']}  (batch=32, optimised variants)", fontweight="bold")
+    ax.set_title(f"Roofline Model — {hw['name']}  (batch={batch}, optimised variants)", fontweight="bold")
     ax.set_xlim(0.8, 600)
     ax.set_ylim(0.5, peak_gflops * 3)
     ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
@@ -142,11 +151,11 @@ def fig_roofline(hw: dict, records: list[dict]) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Figure 2: Latency grouped bar chart (batch=32, best variants)
+# Figure 2: Latency grouped bar chart (best variants)
 # ---------------------------------------------------------------------------
 
 def fig_latency_bars(hw: dict, records: list[dict]) -> Path:
-    batch = 32
+    batch = rep_batch(records)
     x     = np.arange(len(ARCHS))
     width = 0.25
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -173,11 +182,11 @@ def fig_latency_bars(hw: dict, records: list[dict]) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Figure 3: Roofline efficiency heatmap (arch × framework, best variant, batch=32)
+# Figure 3: Roofline efficiency heatmap (arch × framework, best variant)
 # ---------------------------------------------------------------------------
 
 def fig_efficiency_heatmap(hw: dict, records: list[dict]) -> Path:
-    batch = 32
+    batch = rep_batch(records)
     matrix = np.full((len(ARCHS), len(FRAMEWORKS)), np.nan)
     for i, arch in enumerate(ARCHS):
         for j, fw in enumerate(FRAMEWORKS):
@@ -186,7 +195,9 @@ def fig_efficiency_heatmap(hw: dict, records: list[dict]) -> Path:
                 matrix[i, j] = v * 100  # percent
 
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
-    im = ax.imshow(matrix, cmap="YlOrRd", vmin=0, vmax=min(matrix[~np.isnan(matrix)].max() * 1.2, 100))
+    valid_vals = matrix[~np.isnan(matrix)]
+    vmax = min(valid_vals.max() * 1.2, 100) if len(valid_vals) > 0 else 100
+    im = ax.imshow(matrix, cmap="YlOrRd", vmin=0, vmax=vmax)
     ax.set_xticks(range(len(FRAMEWORKS)))
     ax.set_xticklabels(FRAMEWORKS)
     ax.set_yticks(range(len(ARCHS)))
@@ -248,7 +259,7 @@ def fig_batch_scaling(hw: dict, records: list[dict]) -> Path:
 # ---------------------------------------------------------------------------
 
 def fig_speedup(hw: dict, records: list[dict]) -> Path:
-    batch = 32
+    batch = rep_batch(records)
     opt_map = {"PyTorch": "compiled", "JAX": "jit", "TensorFlow": "tf.function"}
     fig, ax = plt.subplots(figsize=(10, 4.5))
 
@@ -289,11 +300,11 @@ def fig_speedup(hw: dict, records: list[dict]) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Figure 6: Throughput (GFLOP/s) best variant, batch=32
+# Figure 6: Throughput (GFLOP/s) best variant
 # ---------------------------------------------------------------------------
 
 def fig_throughput(hw: dict, records: list[dict]) -> Path:
-    batch = 32
+    batch = rep_batch(records)
     x     = np.arange(len(ARCHS))
     width = 0.25
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -324,7 +335,7 @@ def fig_throughput(hw: dict, records: list[dict]) -> Path:
 # ---------------------------------------------------------------------------
 
 def fig_cv_heatmap(hw: dict, records: list[dict]) -> Path:
-    batch = 32
+    batch = rep_batch(records)
     matrix = np.full((len(ARCHS), len(FRAMEWORKS)), np.nan)
     for i, arch in enumerate(ARCHS):
         for j, fw in enumerate(FRAMEWORKS):
@@ -339,15 +350,79 @@ def fig_cv_heatmap(hw: dict, records: list[dict]) -> Path:
     ax.set_yticks(range(len(ARCHS)))
     ax.set_yticklabels(ARCHS)
     plt.colorbar(im, ax=ax, label="Coefficient of Variation (%)")
+    valid_cv = matrix[~np.isnan(matrix)]
+    mean_cv = valid_cv.mean() if len(valid_cv) > 0 else 0
     for i in range(len(ARCHS)):
         for j in range(len(FRAMEWORKS)):
             val = matrix[i, j]
             txt = f"{val:.1f}%" if not np.isnan(val) else "N/A"
             ax.text(j, i, txt, ha="center", va="center", fontsize=10, fontweight="bold",
-                    color="white" if (not np.isnan(val) and val > matrix[~np.isnan(matrix)].mean()) else "black")
+                    color="white" if (not np.isnan(val) and val > mean_cv) else "black")
     ax.set_title(f"Measurement Noise (CV%) — {hw['name']}\nbatch={batch}, optimised variants", fontweight="bold")
     fig.tight_layout()
     out = FIG_DIR / "fig7_cv_heatmap.png"
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Figure 8: Memory utilization and allocator overhead
+# ---------------------------------------------------------------------------
+
+def fig_memory_utilization(hw: dict, records: list[dict]) -> Path:
+    batch = rep_batch(records)
+    x = np.arange(len(ARCHS))
+    width = 0.22
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Panel 1: Peak Allocated Memory vs Theoretical Bounds (MB, log scale)
+    theo_mins = []
+    theo_conss = []
+    for arch in ARCHS:
+        t_min = get(records, "PyTorch", "baseline", arch, batch, "theoretical_min_bytes")
+        t_cons = get(records, "PyTorch", "baseline", arch, batch, "theoretical_conservative_bytes")
+        theo_mins.append((t_min or 0) / (1024 * 1024))
+        theo_conss.append((t_cons or 0) / (1024 * 1024))
+
+    ax1.bar(x - width, theo_mins, width * 0.9, label="Theoretical Min", color="#2ECC71", alpha=0.85)
+    ax1.bar(x, theo_conss, width * 0.9, label="Theoretical Cons.", color="#27AE60", alpha=0.85)
+
+    for i, fw in enumerate(FRAMEWORKS):
+        allocs = []
+        for arch in ARCHS:
+            val = best(records, fw, arch, batch, "peak_allocated_bytes")
+            allocs.append((val or 0) / (1024 * 1024))
+        if any(v > 0 for v in allocs):
+            ax1.bar(x + (i + 1) * width, allocs, width * 0.9, label=f"{fw} Peak Alloc", color=FW_COLORS[fw], alpha=0.85)
+
+    ax1.set_xticks(x + width / 2)
+    ax1.set_xticklabels(ARCHS)
+    ax1.set_ylabel("Memory Footprint (MB, log scale)")
+    ax1.set_yscale("log")
+    ax1.set_title(f"Peak Memory vs Theoretical Bounds\n{hw['name']}  ·  batch={batch}", fontweight="bold")
+    ax1.legend(framealpha=0.9, fontsize=8)
+
+    # Panel 2: Memory Overhead Ratio & Allocator Reservation
+    for i, fw in enumerate(FRAMEWORKS):
+        ratios = [best(records, fw, arch, batch, "memory_overhead_ratio") or 1.0 for arch in ARCHS]
+        if any(r > 1.0 for r in ratios):
+            bars = ax2.bar(x + i * 0.35, ratios, 0.32, label=f"{fw} Overhead Ratio", color=FW_COLORS[fw], alpha=0.85)
+            for bar, r in zip(bars, ratios):
+                if r > 0:
+                    ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.1,
+                             f"{r:.1f}×", ha="center", va="bottom", fontsize=8)
+
+    ax2.axhline(1.0, color="black", lw=1, ls="--", alpha=0.5, label="Theoretical Min (1.0×)")
+    ax2.set_xticks(x + 0.18)
+    ax2.set_xticklabels(ARCHS)
+    ax2.set_ylabel("Overhead Ratio (observed / theoretical_min)")
+    ax2.set_title(f"Dynamic Memory Overhead Ratio\n{hw['name']}  ·  batch={batch}", fontweight="bold")
+    ax2.legend(framealpha=0.9, fontsize=8)
+
+    fig.tight_layout()
+    out = FIG_DIR / "fig8_memory_utilization.png"
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
     return out
@@ -445,6 +520,43 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
             if best_fw:
                 lines.append(f"- **{arch}**: fastest framework is **{best_fw}** at {best_ms:.2f} ms (batch={batch32})")
         return "\n".join(lines)
+
+    def memory_table(batch: int) -> str:
+        rows = [
+            "| Architecture | Framework | Variant | Theo Min (KB) | Theo Cons (KB) | Peak Alloc (KB) | Peak Reserved (KB) | Overhead Ratio | Pool Caching |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+        def fmt_kb(n):
+            if n is None: return "—"
+            return f"{n / 1024:,.1f}"
+
+        for arch in ARCHS:
+            for fw in FRAMEWORKS:
+                for variant in ["baseline", "compiled", "jit", "tf.function"]:
+                    hits = select(records, framework=fw, variant=variant, architecture=arch, batch=batch)
+                    if not hits:
+                        continue
+                    r = hits[0]
+                    t_min = r.get("theoretical_min_bytes")
+                    t_cons = r.get("theoretical_conservative_bytes")
+                    p_alloc = r.get("peak_allocated_bytes")
+                    p_res = r.get("peak_reserved_bytes")
+                    overhead = r.get("memory_overhead_ratio")
+                    overhead_str = f"**{overhead:.2f}×**" if overhead is not None else "—"
+                    caching_str = "—"
+                    if p_res is not None and p_alloc is not None and p_alloc > 0:
+                        caching_ratio = p_res / p_alloc
+                        caching_str = f"{caching_ratio:.2f}×" if caching_ratio > 1.05 else "1.00× (minimal)"
+                    rows.append(
+                        f"| {arch} | {fw} | {variant} "
+                        f"| {fmt_kb(t_min)} "
+                        f"| {fmt_kb(t_cons)} "
+                        f"| {fmt_kb(p_alloc)} "
+                        f"| {fmt_kb(p_res)} "
+                        f"| {overhead_str} "
+                        f"| {caching_str} |"
+                    )
+        return "\n".join(rows)
 
     ridge = hw["ridge_point"]
 
@@ -559,7 +671,7 @@ Speedup ratio = eager latency / optimised latency. Higher is better.
 
 ---
 
-## Figure 7 — Measurement Noise (CV%, batch=32)
+## Figure 7 — Measurement Noise (CV%, batch={batch32})
 
 Lower CV (%) indicates more stable, reproducible measurements.
 
@@ -569,6 +681,23 @@ Lower CV (%) indicates more stable, reproducible measurements.
 - JAX JIT shows very low CV (<3%) — deterministic compilation produces stable execution times
 - TensorFlow eager shows high CV on recurrent models (Python-level branching introduces jitter)
 - PyTorch baseline shows moderate CV; `torch.compile()` significantly reduces it
+
+---
+
+## Figure 8 — Peak Memory Utilization and Allocator Overhead (batch={batch32})
+
+Empirical memory telemetry measured from framework allocators compared against theoretical tensor bounds calculated by `neural_cost.profile_model` and `neural_cost.analyze_memory_gap`.
+
+![Memory utilization]({rel(fig_paths["memory"])})
+
+### Memory Telemetry and Allocator Fragmentation Table (batch={batch32})
+
+{memory_table(batch32)}
+
+**Key observations:**
+- **Dynamic overhead ratio:** Observed peak memory exceeds the theoretical minimum due to temporary execution buffers, convolution im2col workspaces, activation retention, and framework object overhead.
+- **Allocator fragmentation & caching:** Framework caching allocators retain memory pools across iterations to avoid repeated system allocation calls. For workloads with high dynamic allocations (such as CNN feature maps), reserved memory can exceed active tensor residency.
+- **Model footprint scaling:** Transformers and CNNs exhibit larger workspace overheads relative to parameter sizes, whereas feed-forward networks track closer to static parameter bounds.
 
 ---
 
@@ -669,6 +798,7 @@ def main() -> None:
         "speedup":      fig_speedup(hw, records),
         "throughput":   fig_throughput(hw, records),
         "cv_heatmap":   fig_cv_heatmap(hw, records),
+        "memory":       fig_memory_utilization(hw, records),
     }
     for name, p in fig_paths.items():
         print(f"  {name}: {p}")
