@@ -1,12 +1,30 @@
-"""Compare a measurement with the roofline lower bound and explain the gap."""
-
+from collections.abc import Iterable
 from dataclasses import dataclass
 
-from .estimate import CostEstimate, FusedCostEstimate
+from .estimate import CostEstimate, FusedCostEstimate, estimate_operation
 from .hardware import HardwareSpec
 from .memory import MemoryEstimate
 from .model import ModelProfile
+from .operations import Operation
 from .profiler import Measurement
+
+
+@dataclass(frozen=True, slots=True)
+class LayerGapAnalysis:
+    """Roofline attribution and bottleneck breakdown for a single operation/layer."""
+
+    name: str
+    kind: str
+    flops: int
+    read_bytes: int
+    write_bytes: int
+    total_bytes: int
+    arithmetic_intensity: float
+    compute_bound_seconds: float
+    bandwidth_bound_seconds: float
+    lower_bound_seconds: float
+    bottleneck: str
+    time_share_ratio: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +43,7 @@ class GapAnalysis:
     cache_efficiency: float | None = None
     fused_lower_bound_seconds: float | None = None
     fused_efficiency: float | None = None
+    layer_analyses: tuple[LayerGapAnalysis, ...] = ()
 
     def render(self) -> str:
         """Return a compact, terminal-friendly performance-gap report."""
@@ -56,6 +75,14 @@ class GapAnalysis:
                 f"{self.achieved_bandwidth / 1e9:.3f} GB/s"
             ),
         ])
+        if self.layer_analyses:
+            lines.append("  top layer bottlenecks:")
+            sorted_layers = sorted(self.layer_analyses, key=lambda l: l.time_share_ratio, reverse=True)[:3]
+            for idx, l in enumerate(sorted_layers, 1):
+                lines.append(
+                    f"    {idx}. {l.name} ({l.kind}): {l.lower_bound_seconds * 1e3:.3f} ms "
+                    f"({l.time_share_ratio:.1%} share, {l.bottleneck}-bound, AI: {l.arithmetic_intensity:.1f} FLOP/B)"
+                )
         lines.extend(f"  next: {finding}" for finding in self.findings)
         return "\n".join(lines)
 
@@ -80,8 +107,53 @@ class ModelGapAnalysis:
     memory: MemoryGapAnalysis
 
 
+def analyze_layers_gap(
+    operations: Iterable[Operation], hardware: HardwareSpec
+) -> tuple[LayerGapAnalysis, ...]:
+    """Compute per-layer roofline bounds, arithmetic intensity, and bottleneck classification."""
+    op_list = list(operations)
+    if not op_list:
+        return ()
+
+    raw_layers: list[tuple[Operation, CostEstimate, float, float, float, str]] = []
+    total_lower_bound = 0.0
+
+    for op in op_list:
+        est = estimate_operation(op)
+        compute = est.flops / hardware.peak_flops
+        bandwidth = est.total_bytes / hardware.memory_bandwidth
+        bound = max(compute, bandwidth)
+        bottleneck = "compute" if compute >= bandwidth else "memory"
+        total_lower_bound += bound
+        raw_layers.append((op, est, compute, bandwidth, bound, bottleneck))
+
+    results: list[LayerGapAnalysis] = []
+    for op, est, compute, bandwidth, bound, bottleneck in raw_layers:
+        share = bound / total_lower_bound if total_lower_bound > 0 else 0.0
+        results.append(
+            LayerGapAnalysis(
+                name=op.name,
+                kind=op.kind,
+                flops=est.flops,
+                read_bytes=est.read_bytes,
+                write_bytes=est.write_bytes,
+                total_bytes=est.total_bytes,
+                arithmetic_intensity=est.arithmetic_intensity,
+                compute_bound_seconds=compute,
+                bandwidth_bound_seconds=bandwidth,
+                lower_bound_seconds=bound,
+                bottleneck=bottleneck,
+                time_share_ratio=share,
+            )
+        )
+    return tuple(results)
+
+
 def analyze_gap(
-    estimate: CostEstimate | FusedCostEstimate, measurement: Measurement, hardware: HardwareSpec
+    estimate: CostEstimate | FusedCostEstimate,
+    measurement: Measurement,
+    hardware: HardwareSpec,
+    operations: Iterable[Operation] | None = None,
 ) -> GapAnalysis:
     """Analyze observed runtime against a roofline lower bound.
 
@@ -96,6 +168,16 @@ def analyze_gap(
     efficiency = min(1.0, lower_bound / observed)
     bottleneck = "compute" if compute >= bandwidth else "memory"
     findings: list[str] = []
+
+    layer_analyses = ()
+    if operations is not None:
+        layer_analyses = analyze_layers_gap(operations, hardware)
+        if layer_analyses:
+            top_layer = max(layer_analyses, key=lambda l: l.time_share_ratio)
+            findings.append(
+                f"Top bottleneck layer: '{top_layer.name}' ({top_layer.kind}) accounts for "
+                f"{top_layer.time_share_ratio:.1%} of theoretical execution time ({top_layer.bottleneck}-bound)."
+            )
 
     fused_lower_bound_seconds = None
     fused_efficiency = None
@@ -148,7 +230,9 @@ def analyze_gap(
         cache_efficiency=cache_efficiency,
         fused_lower_bound_seconds=fused_lower_bound_seconds,
         fused_efficiency=fused_efficiency,
+        layer_analyses=layer_analyses,
     )
+
 
 
 
@@ -193,7 +277,8 @@ def analyze_model_gap(
     """Analyze compute roofline efficiency and memory allocation in one call."""
     cost_to_analyze = profile.fused_cost if profile.fused_cost is not None else profile.cost
     return ModelGapAnalysis(
-        analyze_gap(cost_to_analyze, measurement, hardware),
+        analyze_gap(cost_to_analyze, measurement, hardware, operations=profile.operations),
         analyze_memory_gap(profile.memory, measurement),
     )
+
 
