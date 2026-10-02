@@ -156,3 +156,54 @@ class TensorFlowAdapterExpandedE2ETest(unittest.TestCase):
         estimate = estimate_model(model, inputs, adapter)
         self.assertGreater(estimate.flops, 0)
         self.assertGreater(estimate.total_bytes, 0)
+
+
+@unittest.skipUnless(importlib.util.find_spec("torch"), "torch not installed")
+class TorchFxAdapterE2ETest(unittest.TestCase):
+    def test_captures_inline_functional_and_residual_add(self):
+        import torch
+
+        from neural_cost.adapters import TorchFxAdapter
+
+        class ResidualBlock(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.fc = torch.nn.Linear(64, 64, bias=False)
+
+            def forward(self, x):
+                res = x
+                x = self.fc(x)
+                x = torch.relu(x)
+                return x + res  # Inline functional addition
+
+        model = ResidualBlock()
+        inputs = (torch.ones((4, 64)),)
+        adapter = TorchFxAdapter()
+        estimate = estimate_model(model, inputs, adapter)
+
+        # Should capture Linear, ReLU, and addition!
+        self.assertGreaterEqual(estimate.operations, 3)
+        self.assertGreater(estimate.flops, 0)
+
+    def test_fallback_on_untraceable_control_flow(self):
+        import torch
+
+        from neural_cost.adapters import TorchFxAdapter
+
+        class DynamicModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.fc = torch.nn.Linear(32, 16, bias=False)
+
+            def forward(self, x):
+                # Dynamic python control flow prevents FX symbolic tracing
+                if x.sum() > 0:
+                    return self.fc(x)
+                return self.fc(x)
+
+        model = DynamicModel()
+        inputs = (torch.ones((2, 32)),)
+        adapter = TorchFxAdapter()
+        estimate = estimate_model(model, inputs, adapter)
+        self.assertGreaterEqual(estimate.operations, 1)
+
