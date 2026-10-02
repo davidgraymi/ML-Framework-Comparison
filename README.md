@@ -236,24 +236,6 @@ Known JAX MPS limitations (tracked upstream):
 - `jax.jit()` gains are large for LSTM (+1.79×) and Transformer (+1.12×) where XLA
   eliminates intermediate tensor roundtrips.
 
-### CUDA CI pipeline
-
-A GitHub Actions workflow at [`.github/workflows/cuda_benchmark.yml`](.github/workflows/cuda_benchmark.yml)
-runs the full GPU benchmark on a **GitHub-hosted GPU larger runner (NVIDIA Tesla T4, CUDA 12.x)**:
-
-```
-# Trigger manually from the Actions tab:
-#   Actions → CUDA Benchmark → Run workflow
-
-# Or apply the label 'run-cuda-benchmark' to any pull request
-```
-
-> **Note:** GPU larger runners are a **paid feature** requiring an Organization plan with
-> GPU runner groups configured. The workflow is gated to only run on `workflow_dispatch` or
-> the `run-cuda-benchmark` PR label, never on every push, to avoid unexpected spend.
->
-> Output artifacts (JSON telemetry + report + figures) are retained for 90 days.
-
 ### GPU vs CPU benchmark differences
 
 | Aspect | CPU benchmark | GPU benchmark |
