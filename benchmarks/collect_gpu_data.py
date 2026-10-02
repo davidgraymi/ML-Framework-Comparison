@@ -40,8 +40,19 @@ from typing import Any
 # Ensure src/ is importable when run from the repo root.
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from neural_cost import HardwareSpec, analyze_gap, profile_model
-from neural_cost.adapters import JaxAdapter, TensorFlowAdapter, TorchAdapter
+from neural_cost import (
+    HardwareSpec,
+    analyze_gap,
+    estimate_fused_operations,
+    profile_model,
+)
+from neural_cost.adapters import (
+    JaxAdapter,
+    TensorFlowAdapter,
+    TorchAdapter,
+    TorchFxAdapter,
+)
+from neural_cost.adapters.base import FrameworkAdapter
 from neural_cost.hardware_detect import detect_hardware
 
 # ---------------------------------------------------------------------------
@@ -89,6 +100,79 @@ class BenchRecord:
     achieved_gflops:    float
     achieved_gbw:       float
     bottleneck:         str
+    fused_efficiency:   float | None = None
+    fused_lower_bound_ms: float | None = None
+    traffic_reduction_pct: float | None = None
+    cache_resident:     bool = False
+    cache_name:         str | None = None
+    cache_bound_ms:     float | None = None
+    top_layer_bottleneck: str | None = None
+    top_layer_share_pct: float | None = None
+
+
+def _make_gpu_bench_record(
+    framework: str,
+    variant: str,
+    arch: str,
+    batch: int,
+    device: str,
+    prof: Any,
+    gap: Any,
+    st: dict[str, float],
+) -> BenchRecord:
+    fused_lb_ms = (
+        round(gap.fused_lower_bound_seconds * 1e3, 3)
+        if gap.fused_lower_bound_seconds is not None
+        else None
+    )
+    traffic_red_pct = None
+    if gap.fused_lower_bound_seconds is not None and getattr(prof, "operations", None):
+        fused_est = estimate_fused_operations(prof.operations)
+        traffic_red_pct = round(fused_est.traffic_reduction_ratio * 100, 1)
+
+    cache_resident = gap.resident_cache_level is not None
+    cache_name = gap.resident_cache_level
+    cache_bound_ms = (
+        round(gap.cache_bound_seconds * 1e3, 3)
+        if gap.cache_bound_seconds is not None
+        else None
+    )
+
+    top_layer_bneck = None
+    top_layer_share = None
+    if gap.layer_analyses:
+        top_l = max(gap.layer_analyses, key=lambda l: l.time_share_ratio)
+        top_layer_bneck = f"{top_l.name} ({top_l.kind}, {top_l.bottleneck}-bound)"
+        top_layer_share = round(top_l.time_share_ratio * 100, 1)
+
+    return BenchRecord(
+        framework=framework,
+        variant=variant,
+        architecture=arch,
+        batch=batch,
+        device=device,
+        flops=prof.cost.flops,
+        param_bytes=prof.memory.parameter_bytes,
+        total_bytes=prof.cost.total_bytes,
+        arith_intensity=prof.cost.arithmetic_intensity,
+        latency_median_ms=st["median"],
+        latency_mean_ms=st["mean"],
+        latency_stddev_ms=st["stddev"],
+        latency_cv_pct=st["cv"],
+        latency_p95_ms=st["p95"],
+        roofline_efficiency=gap.efficiency,
+        achieved_gflops=gap.achieved_flops / 1e9,
+        achieved_gbw=gap.achieved_bandwidth / 1e9,
+        bottleneck=gap.bottleneck,
+        fused_efficiency=gap.fused_efficiency,
+        fused_lower_bound_ms=fused_lb_ms,
+        traffic_reduction_pct=traffic_red_pct,
+        cache_resident=cache_resident,
+        cache_name=cache_name,
+        cache_bound_ms=cache_bound_ms,
+        top_layer_bottleneck=top_layer_bneck,
+        top_layer_share_pct=top_layer_share,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -556,7 +640,12 @@ def _detect_tf_gpu() -> tuple[str, str]:
 # Per-framework GPU evaluation
 # ---------------------------------------------------------------------------
 
-def _make_gap(cost: Any, st: dict, hardware: HardwareSpec) -> Any:
+def _make_gap(
+    cost: Any,
+    st: dict,
+    hardware: HardwareSpec,
+    operations: Any = None,
+) -> Any:
     """Build a fake measurement object compatible with analyze_gap."""
     return analyze_gap(
         cost,
@@ -565,6 +654,7 @@ def _make_gap(cost: Any, st: dict, hardware: HardwareSpec) -> Any:
             "samples_seconds":  tuple(s / 1e3 for s in [st["median"]] * 2),
         })(),
         hardware,
+        operations=operations,
     )
 
 
@@ -575,9 +665,18 @@ def eval_torch_gpu(
     repeats: int,
     torch_device: Any,
     device_label: str,
+    use_fx: bool = True,
 ) -> list[BenchRecord]:
     import torch
-    adapter = TorchAdapter()
+
+    if use_fx:
+        try:
+            adapter: FrameworkAdapter = TorchFxAdapter()
+        except Exception:
+            adapter = TorchAdapter()
+    else:
+        adapter = TorchAdapter()
+
     records: list[BenchRecord] = []
 
     is_cuda = str(torch_device).startswith("cuda")
@@ -596,7 +695,6 @@ def eval_torch_gpu(
                 cpu_model, cpu_inputs = TORCH_GPU_BUILDERS[arch](batch, torch.device("cpu"))
                 prof = profile_model(cpu_model, cpu_inputs, adapter)
                 cost = prof.cost
-                mem  = prof.memory
             except Exception:
                 continue
 
@@ -612,15 +710,12 @@ def eval_torch_gpu(
             try:
                 samp = _time(model, inputs)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware)
-                records.append(BenchRecord(
-                    "PyTorch", "baseline", arch, batch, device_label,
-                    cost.flops, mem.parameter_bytes, cost.total_bytes,
-                    cost.arithmetic_intensity,
-                    st["median"], st["mean"], st["stddev"], st["cv"], st["p95"],
-                    gap.efficiency, gap.achieved_flops / 1e9, gap.achieved_bandwidth / 1e9,
-                    gap.bottleneck,
-                ))
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                records.append(
+                    _make_gpu_bench_record(
+                        "PyTorch", "baseline", arch, batch, device_label, prof, gap, st
+                    )
+                )
             except Exception as exc:
                 print(f"  PyTorch GPU baseline {arch} B={batch}: {exc}")
 
@@ -641,15 +736,12 @@ def eval_torch_gpu(
                         compiled(*inputs)
                 samp = _time(compiled, inputs)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware)
-                records.append(BenchRecord(
-                    "PyTorch", "compiled", arch, batch, device_label,
-                    cost.flops, mem.parameter_bytes, cost.total_bytes,
-                    cost.arithmetic_intensity,
-                    st["median"], st["mean"], st["stddev"], st["cv"], st["p95"],
-                    gap.efficiency, gap.achieved_flops / 1e9, gap.achieved_bandwidth / 1e9,
-                    gap.bottleneck,
-                ))
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                records.append(
+                    _make_gpu_bench_record(
+                        "PyTorch", "compiled", arch, batch, device_label, prof, gap, st
+                    )
+                )
             except Exception as exc:
                 print(f"  PyTorch GPU compiled {arch} B={batch}: {exc}")
 
@@ -692,15 +784,12 @@ def eval_jax_gpu(
             try:
                 samp = _jax_block(model, inputs, warmup, repeats)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware)
-                records.append(BenchRecord(
-                    "JAX", "baseline", arch, batch, device_label,
-                    cost.flops, mem.parameter_bytes, cost.total_bytes,
-                    cost.arithmetic_intensity,
-                    st["median"], st["mean"], st["stddev"], st["cv"], st["p95"],
-                    gap.efficiency, gap.achieved_flops / 1e9, gap.achieved_bandwidth / 1e9,
-                    gap.bottleneck,
-                ))
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                records.append(
+                    _make_gpu_bench_record(
+                        "JAX", "baseline", arch, batch, device_label, prof, gap, st
+                    )
+                )
             except Exception as exc:
                 print(f"  JAX GPU baseline {arch} B={batch}: {exc}")
 
@@ -716,15 +805,12 @@ def eval_jax_gpu(
                 wait(jit_model(*inputs))
                 samp = _jax_block(jit_model, inputs, warmup, repeats)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware)
-                records.append(BenchRecord(
-                    "JAX", "jit", arch, batch, device_label,
-                    cost.flops, mem.parameter_bytes, cost.total_bytes,
-                    cost.arithmetic_intensity,
-                    st["median"], st["mean"], st["stddev"], st["cv"], st["p95"],
-                    gap.efficiency, gap.achieved_flops / 1e9, gap.achieved_bandwidth / 1e9,
-                    gap.bottleneck,
-                ))
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                records.append(
+                    _make_gpu_bench_record(
+                        "JAX", "jit", arch, batch, device_label, prof, gap, st
+                    )
+                )
             except Exception as exc:
                 print(f"  JAX GPU jit {arch} B={batch}: {exc}")
 
@@ -754,7 +840,6 @@ def eval_tensorflow_gpu(
             try:
                 prof = profile_model(model, inputs, adapter)
                 cost = prof.cost
-                mem  = prof.memory
             except Exception:
                 continue
 
@@ -764,15 +849,12 @@ def eval_tensorflow_gpu(
             try:
                 samp = _tf_block(fn, inputs, warmup, repeats)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware)
-                records.append(BenchRecord(
-                    "TensorFlow", "baseline", arch, batch, device_label,
-                    cost.flops, mem.parameter_bytes, cost.total_bytes,
-                    cost.arithmetic_intensity,
-                    st["median"], st["mean"], st["stddev"], st["cv"], st["p95"],
-                    gap.efficiency, gap.achieved_flops / 1e9, gap.achieved_bandwidth / 1e9,
-                    gap.bottleneck,
-                ))
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                records.append(
+                    _make_gpu_bench_record(
+                        "TensorFlow", "baseline", arch, batch, device_label, prof, gap, st
+                    )
+                )
             except Exception as exc:
                 print(f"  TF GPU baseline {arch} B={batch}: {exc}")
 
@@ -784,15 +866,12 @@ def eval_tensorflow_gpu(
                     tf_fn(*inputs)
                 samp = _tf_block(tf_fn, inputs, warmup, repeats)
                 st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware)
-                records.append(BenchRecord(
-                    "TensorFlow", "tf.function+XLA", arch, batch, device_label,
-                    cost.flops, mem.parameter_bytes, cost.total_bytes,
-                    cost.arithmetic_intensity,
-                    st["median"], st["mean"], st["stddev"], st["cv"], st["p95"],
-                    gap.efficiency, gap.achieved_flops / 1e9, gap.achieved_bandwidth / 1e9,
-                    gap.bottleneck,
-                ))
+                gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                records.append(
+                    _make_gpu_bench_record(
+                        "TensorFlow", "tf.function+XLA", arch, batch, device_label, prof, gap, st
+                    )
+                )
             except Exception as exc:
                 # Fallback to graph mode without XLA if XLA compile fails
                 try:
@@ -801,15 +880,12 @@ def eval_tensorflow_gpu(
                         tf_fn(*inputs)
                     samp = _tf_block(tf_fn, inputs, warmup, repeats)
                     st   = _stats(samp)
-                    gap  = _make_gap(cost, st, hardware)
-                    records.append(BenchRecord(
-                        "TensorFlow", "tf.function", arch, batch, device_label,
-                        cost.flops, mem.parameter_bytes, cost.total_bytes,
-                        cost.arithmetic_intensity,
-                        st["median"], st["mean"], st["stddev"], st["cv"], st["p95"],
-                        gap.efficiency, gap.achieved_flops / 1e9, gap.achieved_bandwidth / 1e9,
-                        gap.bottleneck,
-                    ))
+                    gap  = _make_gap(cost, st, hardware, operations=prof.operations)
+                    records.append(
+                        _make_gpu_bench_record(
+                            "TensorFlow", "tf.function", arch, batch, device_label, prof, gap, st
+                        )
+                    )
                 except Exception as exc2:
                     print(f"  TF GPU tf.function {arch} B={batch}: {exc2}")
 
@@ -1025,6 +1101,11 @@ def main() -> None:
             "benchmarks/results/benchmark_data.json if present."
         ),
     )
+    parser.add_argument(
+        "--no-fx",
+        action="store_true",
+        help="Disable PyTorch FX graph tracing fallback",
+    )
     args = parser.parse_args()
 
     warmup  = 5  if args.quick else args.warmup
@@ -1084,7 +1165,7 @@ def main() -> None:
     if args.memory_bandwidth:
         mem_bw = args.memory_bandwidth
 
-    gpu_hardware = HardwareSpec(gpu_name, peak_flops, mem_bw)
+    gpu_hardware = HardwareSpec(gpu_name, peak_flops, mem_bw, caches=hardware.caches)
 
     hw_meta = {
         "name":               gpu_hardware.name,
@@ -1102,14 +1183,29 @@ def main() -> None:
 
     all_records: list[BenchRecord] = []
 
+    def _print_recs(recs: list[BenchRecord]) -> None:
+        for r in recs:
+            extra = []
+            if r.fused_efficiency is not None:
+                extra.append(f"fused: {r.fused_efficiency:.1%}")
+            if r.cache_resident and r.cache_name:
+                extra.append(f"resident: {r.cache_name}")
+            if r.top_layer_bottleneck:
+                extra.append(f"top: {r.top_layer_bottleneck}")
+            extra_str = f"  [{', '.join(extra)}]" if extra else ""
+            print(
+                f"  {r.variant:<16} {r.architecture:<14} B={r.batch:<4}  "
+                f"{r.latency_median_ms:7.2f} ms  {r.roofline_efficiency:.1%}  {r.bottleneck}{extra_str}"
+            )
+
     # PyTorch GPU
     if importlib.util.find_spec("torch") is not None and torch_dev is not None:
         print(f"── PyTorch ({torch_label}) ─────────────────────────────────")
-        recs = eval_torch_gpu(gpu_hardware, batches, warmup, repeats, torch_dev, torch_label)
+        recs = eval_torch_gpu(
+            gpu_hardware, batches, warmup, repeats, torch_dev, torch_label, use_fx=not args.no_fx
+        )
         all_records.extend(recs)
-        for r in recs:
-            print(f"  {r.variant:<16} {r.architecture:<14} B={r.batch:<4}  "
-                  f"{r.latency_median_ms:7.2f} ms  {r.roofline_efficiency:.1%}  {r.bottleneck}")
+        _print_recs(recs)
         print()
 
     # JAX GPU
@@ -1119,9 +1215,7 @@ def main() -> None:
             print(f"── JAX ({jax_label}) ─────────────────────────────────")
             recs = eval_jax_gpu(gpu_hardware, batches, warmup, repeats, jax_dev, jax_label)
             all_records.extend(recs)
-            for r in recs:
-                print(f"  {r.variant:<16} {r.architecture:<14} B={r.batch:<4}  "
-                      f"{r.latency_median_ms:7.2f} ms  {r.roofline_efficiency:.1%}  {r.bottleneck}")
+            _print_recs(recs)
             print()
         else:
             print("[skip] JAX: no GPU/accelerator device available")
@@ -1134,9 +1228,7 @@ def main() -> None:
         print(f"── TensorFlow ({tf_label}) ─────────────────────────────────")
         recs = eval_tensorflow_gpu(gpu_hardware, batches, warmup, repeats, tf_dev, tf_label)
         all_records.extend(recs)
-        for r in recs:
-            print(f"  {r.variant:<16} {r.architecture:<14} B={r.batch:<4}  "
-                  f"{r.latency_median_ms:7.2f} ms  {r.roofline_efficiency:.1%}  {r.bottleneck}")
+        _print_recs(recs)
         print()
     else:
         print("[skip] TensorFlow not installed")

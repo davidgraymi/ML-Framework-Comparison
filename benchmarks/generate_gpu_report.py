@@ -559,6 +559,28 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path],
                     )
         return "\n".join(rows)
 
+    def diagnostics_table(batch: int) -> str:
+        rows = [
+            "| Architecture | Framework | Variant | Fused Efficiency | Traffic Saved | Resident Cache | Top Layer Bottleneck | Layer Share |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for arch in ARCHS:
+            for fw in FRAMEWORKS:
+                for variant in ["baseline", "compiled", "jit", "tf.function", "tf.function+XLA"]:
+                    hits = select(records, framework=fw, variant=variant, architecture=arch, batch=batch)
+                    if not hits:
+                        continue
+                    r = hits[0]
+                    fused_eff = f"{r['fused_efficiency']:.1%}" if r.get("fused_efficiency") is not None else "—"
+                    traffic = f"{r['traffic_reduction_pct']:.1f}%" if r.get("traffic_reduction_pct") is not None else "—"
+                    res = f"{r['cache_name']}" if r.get("cache_resident") and r.get("cache_name") else ("Yes" if r.get("cache_resident") else "DRAM/VRAM")
+                    top_layer = r.get("top_layer_bottleneck") or "—"
+                    share = f"{r['top_layer_share_pct']:.1f}%" if r.get("top_layer_share_pct") is not None else "—"
+                    rows.append(
+                        f"| {arch} | {fw} | {variant} | {fused_eff} | {traffic} | {res} | {top_layer} | {share} |"
+                    )
+        return "\n".join(rows)
+
     def speedup_table() -> str:
         rows = [
             "| Architecture | PyTorch (compile) | JAX (jit) | TensorFlow (XLA/graph) |",
@@ -758,6 +780,19 @@ Speedup ratio = eager latency / optimised latency. Higher is better.
 <summary>Expand full results table (all variants, batch={ref_batch})</summary>
 
 {stat_table(ref_batch)}
+
+</details>
+
+---
+
+## Advanced Causal Diagnostics (batch={ref_batch})
+
+Diagnostics powered by neural-cost's causal gap analyzer, hierarchical cache model, operator fusion estimator, and FX graph tracing:
+
+<details>
+<summary>Expand advanced diagnostics table (batch={ref_batch})</summary>
+
+{diagnostics_table(ref_batch)}
 
 </details>
 
