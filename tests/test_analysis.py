@@ -121,6 +121,39 @@ class AnalysisTests(unittest.TestCase):
         rendered = result.render()
         self.assertIn("fused bound:", rendered)
 
+    def test_analyze_layers_gap(self):
+        from neural_cost.analysis import analyze_layers_gap
+        from neural_cost.operations import Operation
+
+        op1 = Operation("fc1", "linear", ((32, 128), (128, 64)), (32, 64), dtype_bytes=4)
+        op2 = Operation("relu", "elementwise", ((32, 64),), (32, 64), dtype_bytes=4)
+        hardware = HardwareSpec("test", peak_flops=1000000, memory_bandwidth=1000000)
+
+        layers = analyze_layers_gap([op1, op2], hardware)
+        self.assertEqual(len(layers), 2)
+        self.assertEqual(layers[0].name, "fc1")
+        self.assertEqual(layers[0].kind, "linear")
+        self.assertGreater(layers[0].flops, 0)
+        self.assertGreater(layers[0].time_share_ratio, layers[1].time_share_ratio)
+        self.assertEqual(layers[1].name, "relu")
+
+    def test_analyze_gap_with_operations(self):
+        from neural_cost.operations import Operation
+
+        op1 = Operation("fc1", "linear", ((32, 128), (128, 64)), (32, 64), dtype_bytes=4)
+        op2 = Operation("relu", "elementwise", ((32, 64),), (32, 64), dtype_bytes=4)
+        est = CostEstimate(flops=1000, read_bytes=100, write_bytes=100, operations=2)
+        measurement = Measurement(median_seconds=0.01, samples_seconds=(0.01,))
+        hardware = HardwareSpec("test", peak_flops=1000000, memory_bandwidth=1000000)
+
+        result = analyze_gap(est, measurement, hardware, operations=[op1, op2])
+        self.assertEqual(len(result.layer_analyses), 2)
+        self.assertTrue(any("Top bottleneck layer:" in f for f in result.findings))
+
+        rendered = result.render()
+        self.assertIn("top layer bottlenecks:", rendered)
+        self.assertIn("fc1 (linear):", rendered)
+
     def test_analyze_model_gap(self):
         cost_est = CostEstimate(flops=1000, read_bytes=100, write_bytes=100, operations=1)
         mem_est = MemoryEstimate(parameter_bytes=100, activation_bytes=100, minimum_peak_activation_bytes=50, conservative_peak_activation_bytes=100)
@@ -134,5 +167,6 @@ class AnalysisTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

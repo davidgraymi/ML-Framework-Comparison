@@ -12,6 +12,7 @@ from .estimate import (
     estimate_operations,
 )
 from .memory import MemoryEstimate, estimate_memory
+from .operations import Operation
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,7 @@ class ModelProfile:
     cost: CostEstimate
     memory: MemoryEstimate
     fused_cost: FusedCostEstimate | None = None
+    operations: tuple[Operation, ...] = ()
 
 
 def profile_model(
@@ -41,5 +43,7 @@ def profile_model(
             optimizer_state_multiplier=optimizer_state_multiplier,
         ),
         fused_cost=estimate_fused_operations(operations),
+        operations=operations,
     )
+
 

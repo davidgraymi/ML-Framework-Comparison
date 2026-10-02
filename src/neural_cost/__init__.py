@@ -3,9 +3,11 @@
 from .adapters import available_adapters, get_adapter
 from .analysis import (
     GapAnalysis,
+    LayerGapAnalysis,
     MemoryGapAnalysis,
     ModelGapAnalysis,
     analyze_gap,
+    analyze_layers_gap,
     analyze_memory_gap,
     analyze_model_gap,
 )
@@ -30,6 +32,7 @@ __all__ = [
     "FusedCostEstimate",
     "GapAnalysis",
     "HardwareSpec",
+    "LayerGapAnalysis",
     "Measurement",
     "MemoryEstimate",
     "MemoryGapAnalysis",
@@ -37,6 +40,7 @@ __all__ = [
     "ModelProfile",
     "Operation",
     "analyze_gap",
+    "analyze_layers_gap",
     "analyze_memory_gap",
     "analyze_model_gap",
     "available_adapters",
