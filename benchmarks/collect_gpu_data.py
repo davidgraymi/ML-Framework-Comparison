@@ -319,6 +319,7 @@ TORCH_GPU_BUILDERS = {
 }
 
 ARCHITECTURES = ["FF DNN", "CNN", "RNN", "LSTM", "Transformer"]
+FRAMEWORKS    = ["PyTorch", "JAX", "TensorFlow"]
 
 
 # ---------------------------------------------------------------------------
@@ -992,7 +993,7 @@ def print_crossover_table(crossover: dict) -> None:
             tag  = f"≥ batch={cb}" if cb else "never"
             note = ""
             if cb:
-                pt = next((p for p in info["data"] if p["batch"] == cb), None)
+                pt = next((p for p in info.get("data", []) if p["batch"] == cb), None)
                 if pt and pt.get("cpu_ms") and pt.get("gpu_ms"):
                     ratio = pt["cpu_ms"] / pt["gpu_ms"]
                     note = f"GPU {ratio:.2f}× faster at batch={cb}"
