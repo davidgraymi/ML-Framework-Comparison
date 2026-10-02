@@ -3,6 +3,9 @@ name: Publish
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "pyproject.toml"
     tags:
       - "v[0-9]+.[0-9]+.[0-9]*"
   workflow_dispatch:
@@ -15,7 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv run --extra dev ruff check src/ tests/ scripts/
+      - name: Check code formatting and linting
+        run: uv run --extra dev python scripts/format.py --check
 
   test:
     runs-on: ${{ matrix.os }}
@@ -64,10 +68,10 @@ jobs:
     permissions:
       contents: write
     outputs:
-      rolled: ${{ steps.roll.outputs.rolled }}
-      version: ${{ steps.roll.outputs.next_version }}
-      tag: ${{ steps.roll.outputs.next_tag }}
-      bump_type: ${{ steps.roll.outputs.bump_type }}
+      rolled: ${{ steps.semver.outputs.changed }}
+      version: ${{ steps.semver.outputs.version }}
+      tag: ${{ steps.semver.outputs.version_tag }}
+      bump_type: ${{ steps.semver.outputs.version_type }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,20 +82,29 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - uses: astral-sh/setup-uv@v5
+      - name: Determine Semantic Version
+        id: semver
+        uses: paulhatch/semantic-version@v5.4.0
+        with:
+          tag_prefix: "v"
+          change_path: "src pyproject.toml"
+          search_commit_body: true
 
-      - name: Roll version if changes exist
-        id: roll
+      - name: Create Git Tag
+        if: steps.semver.outputs.changed == 'true'
         run: |
-          python3 scripts/roll_version.py --tag --push
+          TAG="${{ steps.semver.outputs.version_tag }}"
+          echo "Creating and pushing tag $TAG..."
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
 
       - name: Create GitHub Release
-        if: steps.roll.outputs.rolled == 'true'
+        if: steps.semver.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.roll.outputs.next_tag }}" \
-            --title "Release ${{ steps.roll.outputs.next_tag }}" \
+          gh release create "${{ steps.semver.outputs.version_tag }}" \
+            --title "Release ${{ steps.semver.outputs.version_tag }}" \
             --generate-notes
 
   publish:
