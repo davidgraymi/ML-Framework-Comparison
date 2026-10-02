@@ -85,3 +85,38 @@ class EstimateTests(unittest.TestCase):
         op = Operation("bad_conv", "conv2d", ((2, 3, 8, 8), (16, 4, 3, 3)), (2, 16, 6, 6))
         with self.assertRaises(ValueError):
             estimate_operations([op])
+
+    def test_estimate_fused_operations(self) -> None:
+        from neural_cost.estimate import estimate_fused_operations
+
+        # Linear followed by ReLU and LayerNorm
+        linear = Operation("fc", "linear", ((32, 128), (128, 64)), (32, 64), dtype_bytes=4)
+        relu = Operation("relu", "elementwise", ((32, 64),), (32, 64), dtype_bytes=4)
+        norm = Operation("norm", "layernorm", ((32, 64),), (32, 64), dtype_bytes=4)
+
+        unfused = estimate_operations([linear, relu, norm])
+        fused = estimate_fused_operations([linear, relu, norm])
+
+        self.assertEqual(fused.flops, unfused.flops)
+        self.assertLess(fused.total_bytes, unfused.total_bytes)
+        self.assertGreater(fused.arithmetic_intensity, unfused.arithmetic_intensity)
+        self.assertEqual(fused.fused_groups_count, 1)
+        self.assertGreater(fused.eliminated_bytes, 0)
+        self.assertGreater(fused.traffic_reduction_ratio, 0.0)
+
+        # Reads: linear inputs (32*128 + 128*64) * 4 bytes.
+        # Writes: final norm output (32*64) * 4 bytes.
+        expected_fused_reads = (32 * 128 + 128 * 64) * 4
+        expected_fused_writes = 32 * 64 * 4
+        self.assertEqual(fused.fused_read_bytes, expected_fused_reads)
+        self.assertEqual(fused.fused_write_bytes, expected_fused_writes)
+
+    def test_estimate_fused_operations_empty(self) -> None:
+        from neural_cost.estimate import estimate_fused_operations
+
+        fused = estimate_fused_operations([])
+        self.assertEqual(fused.flops, 0)
+        self.assertEqual(fused.total_bytes, 0)
+        self.assertEqual(fused.eliminated_bytes, 0)
+        self.assertEqual(fused.fused_groups_count, 0)
+

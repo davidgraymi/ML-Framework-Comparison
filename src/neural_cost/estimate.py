@@ -112,3 +112,113 @@ def estimate_operations(operations: Iterable[Operation]) -> CostEstimate:
     for operation in operations:
         total += estimate_operation(operation)
     return total
+
+
+@dataclass(frozen=True, slots=True)
+class FusedCostEstimate:
+    """Cost estimate accounting for compiler operator fusion."""
+
+    unfused: CostEstimate
+    fused_read_bytes: int
+    fused_write_bytes: int
+    eliminated_bytes: int
+    fused_groups_count: int
+
+    @property
+    def flops(self) -> int:
+        return self.unfused.flops
+
+    @property
+    def read_bytes(self) -> int:
+        return self.fused_read_bytes
+
+    @property
+    def write_bytes(self) -> int:
+        return self.fused_write_bytes
+
+    @property
+    def operations(self) -> int:
+        return self.unfused.operations
+
+    @property
+    def total_bytes(self) -> int:
+        return self.fused_read_bytes + self.fused_write_bytes
+
+    @property
+    def arithmetic_intensity(self) -> float:
+        return self.flops / self.total_bytes if self.total_bytes else 0.0
+
+    @property
+    def traffic_reduction_ratio(self) -> float:
+        return self.eliminated_bytes / self.unfused.total_bytes if self.unfused.total_bytes else 0.0
+
+
+_FUSIBLE_CONSUMER_KINDS = {
+    "elementwise",
+    "softmax",
+    "layernorm",
+    "batchnorm",
+    "pooling",
+}
+
+
+def estimate_fused_operations(operations: Iterable[Operation]) -> FusedCostEstimate:
+    """Estimate theoretical work and reduced tensor traffic under operator fusion.
+
+    Identifies producer-consumer patterns (such as linear/conv2d followed by
+    elementwise, normalization, or pooling layers) that modern optimizing
+    compilers (e.g., PyTorch Inductor, JAX/XLA) fuse into single kernels,
+    eliminating intermediate DRAM roundtrips.
+    """
+    op_list = list(operations)
+    unfused = estimate_operations(op_list)
+    if not op_list:
+        return FusedCostEstimate(unfused, 0, 0, 0, 0)
+
+    eliminated_read_bytes = 0
+    eliminated_write_bytes = 0
+    fused_groups = 0
+
+    i = 0
+    while i < len(op_list):
+        current_op = op_list[i]
+        fused_with_current = False
+        j = i + 1
+        last_out_shape = current_op.output
+        last_dtype = current_op.dtype_bytes
+
+        while j < len(op_list):
+            next_op = op_list[j]
+            if (
+                next_op.kind in _FUSIBLE_CONSUMER_KINDS
+                and next_op.inputs
+                and next_op.inputs[0] == last_out_shape
+            ):
+                intermediate_bytes = numel(last_out_shape) * min(last_dtype, next_op.dtype_bytes)
+                eliminated_write_bytes += intermediate_bytes
+                eliminated_read_bytes += intermediate_bytes
+                fused_with_current = True
+                last_out_shape = next_op.output
+                last_dtype = next_op.dtype_bytes
+                j += 1
+            else:
+                break
+
+        if fused_with_current:
+            fused_groups += 1
+            i = j
+        else:
+            i += 1
+
+    fused_read = max(0, unfused.read_bytes - eliminated_read_bytes)
+    fused_write = max(0, unfused.write_bytes - eliminated_write_bytes)
+    eliminated_total = eliminated_read_bytes + eliminated_write_bytes
+
+    return FusedCostEstimate(
+        unfused=unfused,
+        fused_read_bytes=fused_read,
+        fused_write_bytes=fused_write,
+        eliminated_bytes=eliminated_total,
+        fused_groups_count=fused_groups,
+    )
+

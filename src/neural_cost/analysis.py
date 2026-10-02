@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .estimate import CostEstimate
+from .estimate import CostEstimate, FusedCostEstimate
 from .hardware import HardwareSpec
 from .memory import MemoryEstimate
 from .model import ModelProfile
@@ -23,6 +23,8 @@ class GapAnalysis:
     cache_bound_seconds: float | None = None
     resident_cache_level: str | None = None
     cache_efficiency: float | None = None
+    fused_lower_bound_seconds: float | None = None
+    fused_efficiency: float | None = None
 
     def render(self) -> str:
         """Return a compact, terminal-friendly performance-gap report."""
@@ -34,6 +36,11 @@ class GapAnalysis:
                 f"memory {self.bandwidth_bound_seconds * 1e3:.3f} ms)"
             ),
         ]
+        if self.fused_lower_bound_seconds is not None:
+            lines.append(
+                f"  fused bound: {self.fused_lower_bound_seconds * 1e3:.3f} ms"
+                + (f" (efficiency {self.fused_efficiency:.1%})" if self.fused_efficiency is not None else "")
+            )
         if self.resident_cache_level and self.cache_bound_seconds is not None:
             lines.append(
                 f"  cache residency: {self.resident_cache_level} "
@@ -74,7 +81,7 @@ class ModelGapAnalysis:
 
 
 def analyze_gap(
-    estimate: CostEstimate, measurement: Measurement, hardware: HardwareSpec
+    estimate: CostEstimate | FusedCostEstimate, measurement: Measurement, hardware: HardwareSpec
 ) -> GapAnalysis:
     """Analyze observed runtime against a roofline lower bound.
 
@@ -89,6 +96,18 @@ def analyze_gap(
     efficiency = min(1.0, lower_bound / observed)
     bottleneck = "compute" if compute >= bandwidth else "memory"
     findings: list[str] = []
+
+    fused_lower_bound_seconds = None
+    fused_efficiency = None
+    if isinstance(estimate, FusedCostEstimate) and estimate.eliminated_bytes > 0:
+        fused_bandwidth = estimate.total_bytes / hardware.memory_bandwidth
+        fused_lower_bound_seconds = max(compute, fused_bandwidth)
+        fused_efficiency = min(1.0, fused_lower_bound_seconds / observed)
+        findings.append(
+            f"Fusion optimization: kernel fusion eliminates {estimate.eliminated_bytes / 1024:.1f} KB of traffic "
+            f"({estimate.traffic_reduction_ratio:.1%} reduction), raising arithmetic intensity to "
+            f"{estimate.arithmetic_intensity:.1f} FLOP/byte and fused lower bound to {fused_lower_bound_seconds * 1e3:.3f} ms."
+        )
 
     resident_cache = hardware.find_resident_cache(estimate.total_bytes)
     cache_bound_seconds = None
@@ -127,7 +146,10 @@ def analyze_gap(
         cache_bound_seconds=cache_bound_seconds,
         resident_cache_level=resident_cache_level,
         cache_efficiency=cache_efficiency,
+        fused_lower_bound_seconds=fused_lower_bound_seconds,
+        fused_efficiency=fused_efficiency,
     )
+
 
 
 def analyze_memory_gap(estimate: MemoryEstimate, measurement: Measurement) -> MemoryGapAnalysis:
@@ -169,7 +191,9 @@ def analyze_model_gap(
     profile: ModelProfile, measurement: Measurement, hardware: HardwareSpec
 ) -> ModelGapAnalysis:
     """Analyze compute roofline efficiency and memory allocation in one call."""
+    cost_to_analyze = profile.fused_cost if profile.fused_cost is not None else profile.cost
     return ModelGapAnalysis(
-        analyze_gap(profile.cost, measurement, hardware),
+        analyze_gap(cost_to_analyze, measurement, hardware),
         analyze_memory_gap(profile.memory, measurement),
     )
+

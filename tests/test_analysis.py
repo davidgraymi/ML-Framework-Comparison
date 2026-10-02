@@ -100,6 +100,27 @@ class AnalysisTests(unittest.TestCase):
         rendered = result.render()
         self.assertIn("cache residency: L2", rendered)
 
+    def test_analyze_gap_fusion(self):
+        from neural_cost.estimate import FusedCostEstimate
+
+        unfused = CostEstimate(flops=1000, read_bytes=500, write_bytes=500, operations=3)
+        fused_est = FusedCostEstimate(
+            unfused=unfused,
+            fused_read_bytes=300,
+            fused_write_bytes=300,
+            eliminated_bytes=400,
+            fused_groups_count=1,
+        )
+        hardware = HardwareSpec("test", peak_flops=100000, memory_bandwidth=100000)
+        measurement = Measurement(median_seconds=0.05, samples_seconds=(0.05,))
+        result = analyze_gap(fused_est, measurement, hardware)
+        self.assertIsNotNone(result.fused_lower_bound_seconds)
+        self.assertIsNotNone(result.fused_efficiency)
+        self.assertTrue(any("Fusion optimization" in f for f in result.findings))
+
+        rendered = result.render()
+        self.assertIn("fused bound:", rendered)
+
     def test_analyze_model_gap(self):
         cost_est = CostEstimate(flops=1000, read_bytes=100, write_bytes=100, operations=1)
         mem_est = MemoryEstimate(parameter_bytes=100, activation_bytes=100, minimum_peak_activation_bytes=50, conservative_peak_activation_bytes=100)
@@ -113,4 +134,5 @@ class AnalysisTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
