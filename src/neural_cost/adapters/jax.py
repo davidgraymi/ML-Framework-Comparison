@@ -123,4 +123,25 @@ class JaxAdapter(FrameworkAdapter):
             wait(function(*args, **kwargs))
             samples.append((perf_counter_ns() - start) / 1_000_000_000)
         device = str(args[0].device) if args and hasattr(args[0], "device") else None
-        return Measurement(median(samples), tuple(samples), device=device)
+        peak = None
+        allocated = None
+        reserved = None
+        if args and hasattr(args[0], "device"):
+            dev = args[0].device
+            if hasattr(dev, "memory_stats") and callable(dev.memory_stats):
+                try:
+                    stats = dev.memory_stats()
+                    if stats:
+                        peak = stats.get("peak_bytes_in_use")
+                        allocated = stats.get("bytes_in_use")
+                        reserved = stats.get("bytes_limit") or stats.get("bytes_reserved")
+                except (AttributeError, RuntimeError, ValueError):
+                    stats = None
+        return Measurement(
+            median(samples),
+            tuple(samples),
+            peak_memory_bytes=peak,
+            device=device,
+            allocated_memory_bytes=allocated,
+            reserved_memory_bytes=reserved,
+        )

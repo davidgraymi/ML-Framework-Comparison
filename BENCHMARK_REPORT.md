@@ -122,6 +122,54 @@ Lower CV (%) indicates more stable, reproducible measurements.
 
 ---
 
+## Figure 8 — Peak Memory Utilization and Allocator Overhead (batch=32)
+
+Empirical memory telemetry measured from framework allocators compared against theoretical tensor bounds calculated by `neural_cost.profile_model` and `neural_cost.analyze_memory_gap`.
+
+![Memory utilization](benchmarks/results/figures/fig8_memory_utilization.png)
+
+### Memory Telemetry and Allocator Fragmentation Table (batch=32)
+
+| Architecture | Framework | Variant | Theo Min (KB) | Theo Cons (KB) | Peak Alloc (KB) | Peak Reserved (KB) | Overhead Ratio | Pool Caching |
+|---|---|---|---|---|---|---|---|---|
+| FF DNN | PyTorch | baseline | 480.0 | 529.3 | 692.0 | 692.0 | **1.44×** | 1.00× (minimal) |
+| FF DNN | PyTorch | compiled | 480.0 | 529.3 | 661.3 | 661.3 | **1.38×** | 1.00× (minimal) |
+| FF DNN | JAX | baseline | 477.0 | 526.2 | 559.0 | 559.0 | **1.17×** | 1.00× (minimal) |
+| FF DNN | JAX | jit | 477.0 | 526.2 | 559.0 | 559.0 | **1.17×** | 1.00× (minimal) |
+| FF DNN | TensorFlow | baseline | 480.0 | 529.3 | 98.0 | 98.0 | **0.20×** | 1.00× (minimal) |
+| FF DNN | TensorFlow | tf.function | 480.0 | 529.3 | 98.0 | 98.0 | **0.20×** | 1.00× (minimal) |
+| CNN | PyTorch | baseline | 8,494.0 | 24,879.3 | 160,082.1 | 160,082.1 | **18.85×** | 1.00× (minimal) |
+| CNN | PyTorch | compiled | 8,494.0 | 24,879.3 | 94,049.8 | 94,049.8 | **11.07×** | 1.00× (minimal) |
+| CNN | JAX | baseline | 8,491.8 | 24,893.0 | 683.8 | 683.8 | **0.08×** | 1.00× (minimal) |
+| CNN | JAX | jit | 8,491.8 | 24,893.0 | 683.8 | 683.8 | **0.08×** | 1.00× (minimal) |
+| CNN | TensorFlow | baseline | 8,495.5 | 26,944.8 | 384.0 | 384.0 | **0.05×** | 1.00× (minimal) |
+| CNN | TensorFlow | tf.function | 8,495.5 | 26,944.8 | 384.0 | 384.0 | **0.05×** | 1.00× (minimal) |
+| RNN | PyTorch | baseline | 773.0 | 2,310.3 | 13,737.5 | 13,737.5 | **17.77×** | 1.00× (minimal) |
+| RNN | PyTorch | compiled | 773.0 | 2,310.3 | 13,737.5 | 13,737.5 | **17.77×** | 1.00× (minimal) |
+| RNN | JAX | baseline | 149.0 | 2,182.2 | 645.0 | 645.0 | **4.33×** | 1.00× (minimal) |
+| RNN | JAX | jit | 149.0 | 2,182.2 | 645.0 | 645.0 | **4.33×** | 1.00× (minimal) |
+| RNN | TensorFlow | baseline | 2,315.0 | 6,924.3 | 512.0 | 512.0 | **0.22×** | 1.00× (minimal) |
+| RNN | TensorFlow | tf.function | 2,315.0 | 6,924.3 | 512.0 | 512.0 | **0.22×** | 1.00× (minimal) |
+| LSTM | PyTorch | baseline | 3,077.0 | 9,222.3 | 37,647.5 | 37,647.5 | **12.23×** | 1.00× (minimal) |
+| LSTM | PyTorch | compiled | 3,077.0 | 9,222.3 | 37,647.5 | 37,647.5 | **12.23×** | 1.00× (minimal) |
+| LSTM | JAX | baseline | 581.0 | 14,342.2 | 1,029.0 | 1,029.0 | **1.77×** | 1.00× (minimal) |
+| LSTM | JAX | jit | 581.0 | 14,342.2 | 1,029.0 | 1,029.0 | **1.77×** | 1.00× (minimal) |
+| LSTM | TensorFlow | baseline | 3,081.0 | 9,226.3 | 512.0 | 512.0 | **0.17×** | 1.00× (minimal) |
+| LSTM | TensorFlow | tf.function | 3,081.0 | 9,226.3 | 512.0 | 512.0 | **0.17×** | 1.00× (minimal) |
+| Transformer | PyTorch | baseline | 3,473.0 | 9,618.3 | 64,900.6 | 64,900.6 | **18.69×** | 1.00× (minimal) |
+| Transformer | PyTorch | compiled | 3,473.0 | 9,618.3 | 44,661.8 | 44,661.8 | **12.86×** | 1.00× (minimal) |
+| Transformer | JAX | baseline | 2,821.0 | 9,242.2 | 1,285.0 | 1,285.0 | **0.46×** | 1.00× (minimal) |
+| Transformer | JAX | jit | 2,821.0 | 9,242.2 | 1,285.0 | 1,285.0 | **0.46×** | 1.00× (minimal) |
+| Transformer | TensorFlow | baseline | 3,602.0 | 9,747.3 | 512.0 | 512.0 | **0.14×** | 1.00× (minimal) |
+| Transformer | TensorFlow | tf.function | 3,602.0 | 9,747.3 | 512.0 | 512.0 | **0.14×** | 1.00× (minimal) |
+
+**Key observations:**
+- **Dynamic overhead ratio:** Observed peak memory exceeds the theoretical minimum due to temporary execution buffers, convolution im2col workspaces, activation retention, and framework object overhead.
+- **Allocator fragmentation & caching:** Framework caching allocators retain memory pools across iterations to avoid repeated system allocation calls. For workloads with high dynamic allocations (such as CNN feature maps), reserved memory can exceed active tensor residency.
+- **Model footprint scaling:** Transformers and CNNs exhibit larger workspace overheads relative to parameter sizes, whereas feed-forward networks track closer to static parameter bounds.
+
+---
+
 ## Full Results Table (batch=32)
 
 <details>

@@ -515,10 +515,75 @@ def fig_crossover(hw: dict, records: list[dict], crossover: dict | None) -> Path
 
 
 # ---------------------------------------------------------------------------
+# Figure GPU-Memory: Peak memory utilization and allocator overhead
+# ---------------------------------------------------------------------------
+
+def fig_gpu_memory(hw: dict, records: list[dict]) -> Path | None:
+    has_mem = any(r.get("peak_allocated_bytes") for r in records)
+    if not has_mem:
+        return None
+    batches = sorted({r["batch"] for r in records})
+    ref_batch = batches[len(batches) // 2] if batches else 32
+    x = np.arange(len(ARCHS))
+    width = 0.22
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    theo_mins = []
+    theo_conss = []
+    for arch in ARCHS:
+        t_min = get(records, "PyTorch", "baseline", arch, ref_batch, "theoretical_min_bytes")
+        t_cons = get(records, "PyTorch", "baseline", arch, ref_batch, "theoretical_conservative_bytes")
+        theo_mins.append((t_min or 0) / (1024 * 1024))
+        theo_conss.append((t_cons or 0) / (1024 * 1024))
+
+    ax1.bar(x - width, theo_mins, width * 0.9, label="Theoretical Min", color="#2ECC71", alpha=0.85)
+    ax1.bar(x, theo_conss, width * 0.9, label="Theoretical Cons.", color="#27AE60", alpha=0.85)
+
+    for i, fw in enumerate(FRAMEWORKS):
+        allocs = []
+        for arch in ARCHS:
+            val = best(records, fw, arch, ref_batch, "peak_allocated_bytes")
+            allocs.append((val or 0) / (1024 * 1024))
+        if any(v > 0 for v in allocs):
+            ax1.bar(x + (i + 1) * width, allocs, width * 0.9, label=f"{fw} Peak Alloc", color=FW_COLORS[fw], alpha=0.85)
+
+    ax1.set_xticks(x + width / 2)
+    ax1.set_xticklabels(ARCHS)
+    ax1.set_ylabel("Memory Footprint (MB, log scale)")
+    ax1.set_yscale("log")
+    ax1.set_title(f"Peak GPU Memory vs Theoretical Bounds\n{hw['name']}  ·  batch={ref_batch}", fontweight="bold")
+    ax1.legend(framealpha=0.9, fontsize=8)
+
+    # Panel 2: Overhead Ratio & Reserved Cache
+    for i, fw in enumerate(FRAMEWORKS):
+        ratios = [best(records, fw, arch, ref_batch, "memory_overhead_ratio") or 1.0 for arch in ARCHS]
+        if any(r > 1.0 for r in ratios):
+            bars = ax2.bar(x + i * 0.35, ratios, 0.32, label=f"{fw} Overhead Ratio", color=FW_COLORS[fw], alpha=0.85)
+            for bar, r in zip(bars, ratios):
+                if r > 0:
+                    ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.1,
+                             f"{r:.1f}×", ha="center", va="bottom", fontsize=8)
+
+    ax2.axhline(1.0, color="black", lw=1, ls="--", alpha=0.5, label="Theoretical Min (1.0×)")
+    ax2.set_xticks(x + 0.18)
+    ax2.set_xticklabels(ARCHS)
+    ax2.set_ylabel("Overhead Ratio (observed / theoretical_min)")
+    ax2.set_title(f"Dynamic GPU Memory Overhead Ratio\n{hw['name']}  ·  batch={ref_batch}", fontweight="bold")
+    ax2.legend(framealpha=0.9, fontsize=8)
+
+    fig.tight_layout()
+    out = FIG_DIR / "gpu_fig_memory.png"
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Build markdown report
 # ---------------------------------------------------------------------------
 
-def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path],
+def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path | None],
                  crossover: dict | None = None) -> str:
     def rel(p: Path) -> str:
         return str(p.relative_to(REPO_ROOT))
@@ -531,6 +596,43 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path],
         if n >= 1e9:  return f"{n/1e9:.2f}G"
         if n >= 1e6:  return f"{n/1e6:.1f}M"
         return f"{n:,.0f}"
+
+    def gpu_memory_table(batch: int) -> str:
+        rows = [
+            "| Architecture | Framework | Variant | Theo Min (KB) | Theo Cons (KB) | Peak Alloc (KB) | Peak Reserved (KB) | Overhead Ratio | Pool Caching |",
+            "|---|---|---|---|---|---|---|---|---|",
+        ]
+        def fmt_kb(n):
+            if n is None: return "—"
+            return f"{n / 1024:,.1f}"
+
+        for arch in ARCHS:
+            for fw in FRAMEWORKS:
+                for variant in ["baseline", "compiled", "jit", "tf.function", "tf.function+XLA"]:
+                    hits = select(records, framework=fw, variant=variant, architecture=arch, batch=batch)
+                    if not hits:
+                        continue
+                    r = hits[0]
+                    t_min = r.get("theoretical_min_bytes")
+                    t_cons = r.get("theoretical_conservative_bytes")
+                    p_alloc = r.get("peak_allocated_bytes")
+                    p_res = r.get("peak_reserved_bytes")
+                    overhead = r.get("memory_overhead_ratio")
+                    overhead_str = f"**{overhead:.2f}×**" if overhead is not None else "—"
+                    caching_str = "—"
+                    if p_res is not None and p_alloc is not None and p_alloc > 0:
+                        caching_ratio = p_res / p_alloc
+                        caching_str = f"{caching_ratio:.2f}×" if caching_ratio > 1.05 else "1.00× (minimal)"
+                    rows.append(
+                        f"| {arch} | {fw} | {variant} "
+                        f"| {fmt_kb(t_min)} "
+                        f"| {fmt_kb(t_cons)} "
+                        f"| {fmt_kb(p_alloc)} "
+                        f"| {fmt_kb(p_res)} "
+                        f"| {overhead_str} "
+                        f"| {caching_str} |"
+                    )
+        return "\n".join(rows)
 
     def stat_table(batch: int) -> str:
         rows = [
@@ -889,6 +991,26 @@ python benchmarks/collect_gpu_data.py --crossover
 ---
 """
 
+    # Memory section if telemetry is available
+    if fig_paths.get("memory") is not None:
+        md += f"""
+---
+
+## GPU Memory Telemetry and Allocator Fragmentation (batch={ref_batch})
+
+Empirical memory telemetry measured from framework device allocators compared against theoretical tensor bounds calculated by `neural_cost.profile_model` and `neural_cost.analyze_memory_gap`.
+
+![GPU Memory]({rel(fig_paths["memory"])})
+
+### Memory Telemetry and Allocator Fragmentation Table (batch={ref_batch})
+
+{gpu_memory_table(ref_batch)}
+
+**Key observations:**
+- **Dynamic overhead ratio:** Observed peak device memory exceeds theoretical minimum tensor storage due to kernel workspace buffers (GEMM workspace, CuDNN/MIOpen convolution scratchpads), activation retention, and device context allocations.
+- **Allocator caching and fragmentation:** CUDA/MPS allocators pool device memory to amortize reallocation cost.
+"""
+
     md += """
 *Generated by `benchmarks/generate_gpu_report.py` using [neural-cost](https://github.com/davidgraymi/neural-cost)*
 """
@@ -920,6 +1042,7 @@ def main() -> None:
         "throughput":         fig_throughput(hw, records),
         "throughput_scaling": fig_throughput_scaling(hw, records),
         "crossover":          fig_crossover(hw, records, crossover),
+        "memory":             fig_gpu_memory(hw, records),
     }
     for name, p in fig_paths.items():
         if p is not None:

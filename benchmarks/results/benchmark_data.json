@@ -33,7 +33,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.002,
       "top_layer_bottleneck": "_0 (linear, memory-bound)",
-      "top_layer_share_pct": 84.1
+      "top_layer_share_pct": 84.1,
+      "peak_allocated_bytes": 482472,
+      "peak_reserved_bytes": 482472,
+      "memory_overhead_ratio": 1.0143,
+      "theoretical_min_bytes": 475688,
+      "theoretical_conservative_bytes": 477264
     },
     {
       "framework": "PyTorch",
@@ -60,7 +65,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.002,
       "top_layer_bottleneck": "_0 (linear, memory-bound)",
-      "top_layer_share_pct": 84.1
+      "top_layer_share_pct": 84.1,
+      "peak_allocated_bytes": 481488,
+      "peak_reserved_bytes": 481488,
+      "memory_overhead_ratio": 1.0122,
+      "theoretical_min_bytes": 475688,
+      "theoretical_conservative_bytes": 477264
     },
     {
       "framework": "PyTorch",
@@ -87,7 +97,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.003,
       "top_layer_bottleneck": "_0 (linear, memory-bound)",
-      "top_layer_share_pct": 78.8
+      "top_layer_share_pct": 78.8,
+      "peak_allocated_bytes": 533544,
+      "peak_reserved_bytes": 533544,
+      "memory_overhead_ratio": 1.1132,
+      "theoretical_min_bytes": 479272,
+      "theoretical_conservative_bytes": 491880
     },
     {
       "framework": "PyTorch",
@@ -114,7 +129,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.003,
       "top_layer_bottleneck": "_0 (linear, memory-bound)",
-      "top_layer_share_pct": 78.8
+      "top_layer_share_pct": 78.8,
+      "peak_allocated_bytes": 525672,
+      "peak_reserved_bytes": 525672,
+      "memory_overhead_ratio": 1.0968,
+      "theoretical_min_bytes": 479272,
+      "theoretical_conservative_bytes": 491880
     },
     {
       "framework": "PyTorch",
@@ -141,7 +161,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.004,
       "top_layer_bottleneck": "_0 (linear, memory-bound)",
-      "top_layer_share_pct": 67.3
+      "top_layer_share_pct": 67.3,
+      "peak_allocated_bytes": 708648,
+      "peak_reserved_bytes": 708648,
+      "memory_overhead_ratio": 1.4416,
+      "theoretical_min_bytes": 491560,
+      "theoretical_conservative_bytes": 541992
     },
     {
       "framework": "PyTorch",
@@ -168,7 +193,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.004,
       "top_layer_bottleneck": "_0 (linear, memory-bound)",
-      "top_layer_share_pct": 67.3
+      "top_layer_share_pct": 67.3,
+      "peak_allocated_bytes": 677160,
+      "peak_reserved_bytes": 677160,
+      "memory_overhead_ratio": 1.3776,
+      "theoretical_min_bytes": 491560,
+      "theoretical_conservative_bytes": 541992
     },
     {
       "framework": "PyTorch",
@@ -195,7 +225,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.012,
       "top_layer_bottleneck": "_0 (linear, memory-bound)",
-      "top_layer_share_pct": 52.2
+      "top_layer_share_pct": 52.2,
+      "peak_allocated_bytes": 1409064,
+      "peak_reserved_bytes": 1409064,
+      "memory_overhead_ratio": 2.6059,
+      "theoretical_min_bytes": 540712,
+      "theoretical_conservative_bytes": 742440
     },
     {
       "framework": "PyTorch",
@@ -222,7 +257,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.012,
       "top_layer_bottleneck": "_0 (linear, memory-bound)",
-      "top_layer_share_pct": 52.2
+      "top_layer_share_pct": 52.2,
+      "peak_allocated_bytes": 1283112,
+      "peak_reserved_bytes": 1283112,
+      "memory_overhead_ratio": 2.373,
+      "theoretical_min_bytes": 540712,
+      "theoretical_conservative_bytes": 742440
     },
     {
       "framework": "PyTorch",
@@ -249,7 +289,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.016,
       "top_layer_bottleneck": "_4 (conv2d, compute-bound)",
-      "top_layer_share_pct": 29.9
+      "top_layer_share_pct": 29.9,
+      "peak_allocated_bytes": 6517380,
+      "peak_reserved_bytes": 6517380,
+      "memory_overhead_ratio": 11.4053,
+      "theoretical_min_bytes": 571432,
+      "theoretical_conservative_bytes": 1095760
     },
     {
       "framework": "PyTorch",
@@ -276,7 +321,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.016,
       "top_layer_bottleneck": "_4 (conv2d, compute-bound)",
-      "top_layer_share_pct": 29.9
+      "top_layer_share_pct": 29.9,
+      "peak_allocated_bytes": 4404384,
+      "peak_reserved_bytes": 4404384,
+      "memory_overhead_ratio": 7.7076,
+      "theoretical_min_bytes": 571432,
+      "theoretical_conservative_bytes": 1095760
     },
     {
       "framework": "PyTorch",
@@ -303,7 +353,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "_4 (conv2d, compute-bound)",
-      "top_layer_share_pct": 30.0
+      "top_layer_share_pct": 30.0,
+      "peak_allocated_bytes": 49963188,
+      "peak_reserved_bytes": 49963188,
+      "memory_overhead_ratio": 20.7623,
+      "theoretical_min_bytes": 2406440,
+      "theoretical_conservative_bytes": 6601064
     },
     {
       "framework": "PyTorch",
@@ -330,7 +385,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "_4 (conv2d, compute-bound)",
-      "top_layer_share_pct": 30.0
+      "top_layer_share_pct": 30.0,
+      "peak_allocated_bytes": 33057768,
+      "peak_reserved_bytes": 33057768,
+      "memory_overhead_ratio": 13.7372,
+      "theoretical_min_bytes": 2406440,
+      "theoretical_conservative_bytes": 6601064
     },
     {
       "framework": "PyTorch",
@@ -357,7 +417,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "_4 (conv2d, compute-bound)",
-      "top_layer_share_pct": 30.0
+      "top_layer_share_pct": 30.0,
+      "peak_allocated_bytes": 163924020,
+      "peak_reserved_bytes": 163924020,
+      "memory_overhead_ratio": 18.8464,
+      "theoretical_min_bytes": 8697896,
+      "theoretical_conservative_bytes": 25476392
     },
     {
       "framework": "PyTorch",
@@ -384,7 +449,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "_4 (conv2d, compute-bound)",
-      "top_layer_share_pct": 30.0
+      "top_layer_share_pct": 30.0,
+      "peak_allocated_bytes": 96306984,
+      "peak_reserved_bytes": 96306984,
+      "memory_overhead_ratio": 11.0724,
+      "theoretical_min_bytes": 8697896,
+      "theoretical_conservative_bytes": 25476392
     },
     {
       "framework": "PyTorch",
@@ -411,7 +481,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "_4 (conv2d, compute-bound)",
-      "top_layer_share_pct": 30.0
+      "top_layer_share_pct": 30.0,
+      "peak_allocated_bytes": 654763572,
+      "peak_reserved_bytes": 654763572,
+      "memory_overhead_ratio": 19.3353,
+      "theoretical_min_bytes": 33863720,
+      "theoretical_conservative_bytes": 100977704
     },
     {
       "framework": "PyTorch",
@@ -438,7 +513,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "_4 (conv2d, compute-bound)",
-      "top_layer_share_pct": 30.0
+      "top_layer_share_pct": 30.0,
+      "peak_allocated_bytes": 384300072,
+      "peak_reserved_bytes": 384300072,
+      "memory_overhead_ratio": 11.3484,
+      "theoretical_min_bytes": 33863720,
+      "theoretical_conservative_bytes": 100977704
     },
     {
       "framework": "PyTorch",
@@ -465,7 +545,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 569464,
+      "peak_reserved_bytes": 569464,
+      "memory_overhead_ratio": 2.0074,
+      "theoretical_min_bytes": 283688,
+      "theoretical_conservative_bytes": 332880
     },
     {
       "framework": "PyTorch",
@@ -492,7 +577,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 569464,
+      "peak_reserved_bytes": 569464,
+      "memory_overhead_ratio": 2.0074,
+      "theoretical_min_bytes": 283688,
+      "theoretical_conservative_bytes": 332880
     },
     {
       "framework": "PyTorch",
@@ -519,7 +609,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 3718824,
+      "peak_reserved_bytes": 3718824,
+      "memory_overhead_ratio": 9.335,
+      "theoretical_min_bytes": 398376,
+      "theoretical_conservative_bytes": 791912
     },
     {
       "framework": "PyTorch",
@@ -546,7 +641,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 3718824,
+      "peak_reserved_bytes": 3718824,
+      "memory_overhead_ratio": 9.335,
+      "theoretical_min_bytes": 398376,
+      "theoretical_conservative_bytes": 791912
     },
     {
       "framework": "PyTorch",
@@ -573,7 +673,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 14067240,
+      "peak_reserved_bytes": 14067240,
+      "memory_overhead_ratio": 17.7708,
+      "theoretical_min_bytes": 791592,
+      "theoretical_conservative_bytes": 2365736
     },
     {
       "framework": "PyTorch",
@@ -600,7 +705,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 14067240,
+      "peak_reserved_bytes": 14067240,
+      "memory_overhead_ratio": 17.7708,
+      "theoretical_min_bytes": 791592,
+      "theoretical_conservative_bytes": 2365736
     },
     {
       "framework": "PyTorch",
@@ -627,7 +737,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 55460904,
+      "peak_reserved_bytes": 55460904,
+      "memory_overhead_ratio": 23.4561,
+      "theoretical_min_bytes": 2364456,
+      "theoretical_conservative_bytes": 8661032
     },
     {
       "framework": "PyTorch",
@@ -654,7 +769,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 55460904,
+      "peak_reserved_bytes": 55460904,
+      "memory_overhead_ratio": 23.4561,
+      "theoretical_min_bytes": 2364456,
+      "theoretical_conservative_bytes": 8661032
     },
     {
       "framework": "PyTorch",
@@ -681,7 +801,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 2053240,
+      "peak_reserved_bytes": 2053240,
+      "memory_overhead_ratio": 1.8344,
+      "theoretical_min_bytes": 1119272,
+      "theoretical_conservative_bytes": 1315920
     },
     {
       "framework": "PyTorch",
@@ -708,7 +833,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 2053240,
+      "peak_reserved_bytes": 2053240,
+      "memory_overhead_ratio": 1.8344,
+      "theoretical_min_bytes": 1119272,
+      "theoretical_conservative_bytes": 1315920
     },
     {
       "framework": "PyTorch",
@@ -735,7 +865,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 10434216,
+      "peak_reserved_bytes": 10434216,
+      "memory_overhead_ratio": 6.6122,
+      "theoretical_min_bytes": 1578024,
+      "theoretical_conservative_bytes": 3151208
     },
     {
       "framework": "PyTorch",
@@ -762,7 +897,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 10434216,
+      "peak_reserved_bytes": 10434216,
+      "memory_overhead_ratio": 6.6122,
+      "theoretical_min_bytes": 1578024,
+      "theoretical_conservative_bytes": 3151208
     },
     {
       "framework": "PyTorch",
@@ -789,7 +929,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 38551080,
+      "peak_reserved_bytes": 38551080,
+      "memory_overhead_ratio": 12.235,
+      "theoretical_min_bytes": 3150888,
+      "theoretical_conservative_bytes": 9443624
     },
     {
       "framework": "PyTorch",
@@ -816,7 +961,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 38551080,
+      "peak_reserved_bytes": 38551080,
+      "memory_overhead_ratio": 12.235,
+      "theoretical_min_bytes": 3150888,
+      "theoretical_conservative_bytes": 9443624
     },
     {
       "framework": "PyTorch",
@@ -843,7 +993,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 151018536,
+      "peak_reserved_bytes": 151018536,
+      "memory_overhead_ratio": 15.9938,
+      "theoretical_min_bytes": 9442344,
+      "theoretical_conservative_bytes": 34613288
     },
     {
       "framework": "PyTorch",
@@ -870,7 +1025,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.0,
       "top_layer_bottleneck": "fc (linear, memory-bound)",
-      "top_layer_share_pct": 100.0
+      "top_layer_share_pct": 100.0,
+      "peak_allocated_bytes": 151018536,
+      "peak_reserved_bytes": 151018536,
+      "memory_overhead_ratio": 15.9938,
+      "theoretical_min_bytes": 9442344,
+      "theoretical_conservative_bytes": 34613288
     },
     {
       "framework": "PyTorch",
@@ -897,7 +1057,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.01,
       "top_layer_bottleneck": "ff1 (linear, memory-bound)",
-      "top_layer_share_pct": 17.4
+      "top_layer_share_pct": 17.4,
+      "peak_allocated_bytes": 3405508,
+      "peak_reserved_bytes": 3405508,
+      "memory_overhead_ratio": 2.2334,
+      "theoretical_min_bytes": 1524776,
+      "theoretical_conservative_bytes": 1721424
     },
     {
       "framework": "PyTorch",
@@ -924,7 +1089,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.01,
       "top_layer_bottleneck": "ff1 (linear, memory-bound)",
-      "top_layer_share_pct": 17.4
+      "top_layer_share_pct": 17.4,
+      "peak_allocated_bytes": 3019936,
+      "peak_reserved_bytes": 3019936,
+      "memory_overhead_ratio": 1.9806,
+      "theoretical_min_bytes": 1524776,
+      "theoretical_conservative_bytes": 1721424
     },
     {
       "framework": "PyTorch",
@@ -951,7 +1121,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "relu (elementwise, memory-bound)",
-      "top_layer_share_pct": 12.5
+      "top_layer_share_pct": 12.5,
+      "peak_allocated_bytes": 17808116,
+      "peak_reserved_bytes": 17808116,
+      "memory_overhead_ratio": 8.978,
+      "theoretical_min_bytes": 1983528,
+      "theoretical_conservative_bytes": 3556712
     },
     {
       "framework": "PyTorch",
@@ -978,7 +1153,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "relu (elementwise, memory-bound)",
-      "top_layer_share_pct": 12.5
+      "top_layer_share_pct": 12.5,
+      "peak_allocated_bytes": 12626920,
+      "peak_reserved_bytes": 12626920,
+      "memory_overhead_ratio": 6.3659,
+      "theoretical_min_bytes": 1983528,
+      "theoretical_conservative_bytes": 3556712
     },
     {
       "framework": "PyTorch",
@@ -1005,7 +1185,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "relu (elementwise, memory-bound)",
-      "top_layer_share_pct": 12.7
+      "top_layer_share_pct": 12.7,
+      "peak_allocated_bytes": 66458228,
+      "peak_reserved_bytes": 66458228,
+      "memory_overhead_ratio": 18.687,
+      "theoretical_min_bytes": 3556392,
+      "theoretical_conservative_bytes": 9849128
     },
     {
       "framework": "PyTorch",
@@ -1032,7 +1217,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "relu (elementwise, memory-bound)",
-      "top_layer_share_pct": 12.7
+      "top_layer_share_pct": 12.7,
+      "peak_allocated_bytes": 45733672,
+      "peak_reserved_bytes": 45733672,
+      "memory_overhead_ratio": 12.8596,
+      "theoretical_min_bytes": 3556392,
+      "theoretical_conservative_bytes": 9849128
     },
     {
       "framework": "PyTorch",
@@ -1059,7 +1249,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "relu (elementwise, memory-bound)",
-      "top_layer_share_pct": 12.7
+      "top_layer_share_pct": 12.7,
+      "peak_allocated_bytes": 261058676,
+      "peak_reserved_bytes": 261058676,
+      "memory_overhead_ratio": 26.5092,
+      "theoretical_min_bytes": 9847848,
+      "theoretical_conservative_bytes": 35018792
     },
     {
       "framework": "PyTorch",
@@ -1086,7 +1281,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "relu (elementwise, memory-bound)",
-      "top_layer_share_pct": 12.7
+      "top_layer_share_pct": 12.7,
+      "peak_allocated_bytes": 178160680,
+      "peak_reserved_bytes": 178160680,
+      "memory_overhead_ratio": 18.0913,
+      "theoretical_min_bytes": 9847848,
+      "theoretical_conservative_bytes": 35018792
     },
     {
       "framework": "JAX",
@@ -1113,7 +1313,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.002,
       "top_layer_bottleneck": "dot_0 (matmul, memory-bound)",
-      "top_layer_share_pct": 84.5
+      "top_layer_share_pct": 84.5,
+      "peak_allocated_bytes": 475200,
+      "peak_reserved_bytes": 475200,
+      "memory_overhead_ratio": 1.0056,
+      "theoretical_min_bytes": 472576,
+      "theoretical_conservative_bytes": 474152
     },
     {
       "framework": "JAX",
@@ -1140,7 +1345,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.002,
       "top_layer_bottleneck": "dot_0 (matmul, memory-bound)",
-      "top_layer_share_pct": 84.5
+      "top_layer_share_pct": 84.5,
+      "peak_allocated_bytes": 475200,
+      "peak_reserved_bytes": 475200,
+      "memory_overhead_ratio": 1.0056,
+      "theoretical_min_bytes": 472576,
+      "theoretical_conservative_bytes": 474152
     },
     {
       "framework": "JAX",
@@ -1167,7 +1377,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.003,
       "top_layer_bottleneck": "dot_0 (matmul, memory-bound)",
-      "top_layer_share_pct": 81.2
+      "top_layer_share_pct": 81.2,
+      "peak_allocated_bytes": 497152,
+      "peak_reserved_bytes": 497152,
+      "memory_overhead_ratio": 1.0441,
+      "theoretical_min_bytes": 476160,
+      "theoretical_conservative_bytes": 488768
     },
     {
       "framework": "JAX",
@@ -1194,7 +1409,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.003,
       "top_layer_bottleneck": "dot_0 (matmul, memory-bound)",
-      "top_layer_share_pct": 81.2
+      "top_layer_share_pct": 81.2,
+      "peak_allocated_bytes": 497152,
+      "peak_reserved_bytes": 497152,
+      "memory_overhead_ratio": 1.0441,
+      "theoretical_min_bytes": 476160,
+      "theoretical_conservative_bytes": 488768
     },
     {
       "framework": "JAX",
@@ -1221,7 +1441,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.004,
       "top_layer_bottleneck": "dot_0 (matmul, memory-bound)",
-      "top_layer_share_pct": 73.5
+      "top_layer_share_pct": 73.5,
+      "peak_allocated_bytes": 572416,
+      "peak_reserved_bytes": 572416,
+      "memory_overhead_ratio": 1.1719,
+      "theoretical_min_bytes": 488448,
+      "theoretical_conservative_bytes": 538880
     },
     {
       "framework": "JAX",
@@ -1248,7 +1473,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.004,
       "top_layer_bottleneck": "dot_0 (matmul, memory-bound)",
-      "top_layer_share_pct": 73.5
+      "top_layer_share_pct": 73.5,
+      "peak_allocated_bytes": 572416,
+      "peak_reserved_bytes": 572416,
+      "memory_overhead_ratio": 1.1719,
+      "theoretical_min_bytes": 488448,
+      "theoretical_conservative_bytes": 538880
     },
     {
       "framework": "JAX",
@@ -1275,7 +1505,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.012,
       "top_layer_bottleneck": "dot_0 (matmul, memory-bound)",
-      "top_layer_share_pct": 61.9
+      "top_layer_share_pct": 61.9,
+      "peak_allocated_bytes": 873472,
+      "peak_reserved_bytes": 873472,
+      "memory_overhead_ratio": 1.6248,
+      "theoretical_min_bytes": 537600,
+      "theoretical_conservative_bytes": 739328
     },
     {
       "framework": "JAX",
@@ -1302,7 +1537,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.012,
       "top_layer_bottleneck": "dot_0 (matmul, memory-bound)",
-      "top_layer_share_pct": 61.9
+      "top_layer_share_pct": 61.9,
+      "peak_allocated_bytes": 873472,
+      "peak_reserved_bytes": 873472,
+      "memory_overhead_ratio": 1.6248,
+      "theoretical_min_bytes": 537600,
+      "theoretical_conservative_bytes": 739328
     },
     {
       "framework": "JAX",
@@ -1329,7 +1569,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.016,
       "top_layer_bottleneck": "conv_2 (conv2d, compute-bound)",
-      "top_layer_share_pct": 45.1
+      "top_layer_share_pct": 45.1,
+      "peak_allocated_bytes": 319232,
+      "peak_reserved_bytes": 319232,
+      "memory_overhead_ratio": 0.561,
+      "theoretical_min_bytes": 569088,
+      "theoretical_conservative_bytes": 1093928
     },
     {
       "framework": "JAX",
@@ -1356,7 +1601,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.016,
       "top_layer_bottleneck": "conv_2 (conv2d, compute-bound)",
-      "top_layer_share_pct": 45.1
+      "top_layer_share_pct": 45.1,
+      "peak_allocated_bytes": 319232,
+      "peak_reserved_bytes": 319232,
+      "memory_overhead_ratio": 0.561,
+      "theoretical_min_bytes": 569088,
+      "theoretical_conservative_bytes": 1093928
     },
     {
       "framework": "JAX",
@@ -1383,7 +1633,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv_2 (conv2d, compute-bound)",
-      "top_layer_share_pct": 45.3
+      "top_layer_share_pct": 45.3,
+      "peak_allocated_bytes": 405248,
+      "peak_reserved_bytes": 405248,
+      "memory_overhead_ratio": 0.1686,
+      "theoretical_min_bytes": 2404096,
+      "theoretical_conservative_bytes": 6602816
     },
     {
       "framework": "JAX",
@@ -1410,7 +1665,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv_2 (conv2d, compute-bound)",
-      "top_layer_share_pct": 45.3
+      "top_layer_share_pct": 45.3,
+      "peak_allocated_bytes": 405248,
+      "peak_reserved_bytes": 405248,
+      "memory_overhead_ratio": 0.1686,
+      "theoretical_min_bytes": 2404096,
+      "theoretical_conservative_bytes": 6602816
     },
     {
       "framework": "JAX",
@@ -1437,7 +1697,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv_2 (conv2d, compute-bound)",
-      "top_layer_share_pct": 45.4
+      "top_layer_share_pct": 45.4,
+      "peak_allocated_bytes": 700160,
+      "peak_reserved_bytes": 700160,
+      "memory_overhead_ratio": 0.0805,
+      "theoretical_min_bytes": 8695552,
+      "theoretical_conservative_bytes": 25490432
     },
     {
       "framework": "JAX",
@@ -1464,7 +1729,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv_2 (conv2d, compute-bound)",
-      "top_layer_share_pct": 45.4
+      "top_layer_share_pct": 45.4,
+      "peak_allocated_bytes": 700160,
+      "peak_reserved_bytes": 700160,
+      "memory_overhead_ratio": 0.0805,
+      "theoretical_min_bytes": 8695552,
+      "theoretical_conservative_bytes": 25490432
     },
     {
       "framework": "JAX",
@@ -1491,7 +1761,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv_2 (conv2d, compute-bound)",
-      "top_layer_share_pct": 45.4
+      "top_layer_share_pct": 45.4,
+      "peak_allocated_bytes": 1879808,
+      "peak_reserved_bytes": 1879808,
+      "memory_overhead_ratio": 0.0555,
+      "theoretical_min_bytes": 33861376,
+      "theoretical_conservative_bytes": 101040896
     },
     {
       "framework": "JAX",
@@ -1518,7 +1793,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv_2 (conv2d, compute-bound)",
-      "top_layer_share_pct": 45.4
+      "top_layer_share_pct": 45.4,
+      "peak_allocated_bytes": 1879808,
+      "peak_reserved_bytes": 1879808,
+      "memory_overhead_ratio": 0.0555,
+      "theoretical_min_bytes": 33861376,
+      "theoretical_conservative_bytes": 101040896
     },
     {
       "framework": "JAX",
@@ -1545,7 +1825,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.022,
       "top_layer_bottleneck": "dot_3 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.5
+      "top_layer_share_pct": 1.5,
+      "peak_allocated_bytes": 152576,
+      "peak_reserved_bytes": 152576,
+      "memory_overhead_ratio": 1.1161,
+      "theoretical_min_bytes": 136704,
+      "theoretical_conservative_bytes": 201768
     },
     {
       "framework": "JAX",
@@ -1572,7 +1857,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.022,
       "top_layer_bottleneck": "dot_3 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.5
+      "top_layer_share_pct": 1.5,
+      "peak_allocated_bytes": 152576,
+      "peak_reserved_bytes": 152576,
+      "memory_overhead_ratio": 1.1161,
+      "theoretical_min_bytes": 136704,
+      "theoretical_conservative_bytes": 201768
     },
     {
       "framework": "JAX",
@@ -1599,7 +1889,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.027,
       "top_layer_bottleneck": "dot_3 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.4
+      "top_layer_share_pct": 1.4,
+      "peak_allocated_bytes": 267264,
+      "peak_reserved_bytes": 267264,
+      "memory_overhead_ratio": 1.9051,
+      "theoretical_min_bytes": 140288,
+      "theoretical_conservative_bytes": 660800
     },
     {
       "framework": "JAX",
@@ -1626,7 +1921,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.027,
       "top_layer_bottleneck": "dot_3 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.4
+      "top_layer_share_pct": 1.4,
+      "peak_allocated_bytes": 267264,
+      "peak_reserved_bytes": 267264,
+      "memory_overhead_ratio": 1.9051,
+      "theoretical_min_bytes": 140288,
+      "theoretical_conservative_bytes": 660800
     },
     {
       "framework": "JAX",
@@ -1653,7 +1953,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_3 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.1
+      "top_layer_share_pct": 1.1,
+      "peak_allocated_bytes": 660480,
+      "peak_reserved_bytes": 660480,
+      "memory_overhead_ratio": 4.3289,
+      "theoretical_min_bytes": 152576,
+      "theoretical_conservative_bytes": 2234624
     },
     {
       "framework": "JAX",
@@ -1680,7 +1985,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_3 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.1
+      "top_layer_share_pct": 1.1,
+      "peak_allocated_bytes": 660480,
+      "peak_reserved_bytes": 660480,
+      "memory_overhead_ratio": 4.3289,
+      "theoretical_min_bytes": 152576,
+      "theoretical_conservative_bytes": 2234624
     },
     {
       "framework": "JAX",
@@ -1707,7 +2017,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_3 (matmul, memory-bound)",
-      "top_layer_share_pct": 0.8
+      "top_layer_share_pct": 0.8,
+      "peak_allocated_bytes": 2233344,
+      "peak_reserved_bytes": 2233344,
+      "memory_overhead_ratio": 11.0711,
+      "theoretical_min_bytes": 201728,
+      "theoretical_conservative_bytes": 8529920
     },
     {
       "framework": "JAX",
@@ -1734,7 +2049,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_3 (matmul, memory-bound)",
-      "top_layer_share_pct": 0.8
+      "top_layer_share_pct": 0.8,
+      "peak_allocated_bytes": 2233344,
+      "peak_reserved_bytes": 2233344,
+      "memory_overhead_ratio": 11.0711,
+      "theoretical_min_bytes": 201728,
+      "theoretical_conservative_bytes": 8529920
     },
     {
       "framework": "JAX",
@@ -1761,7 +2081,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_4 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.5
+      "top_layer_share_pct": 1.5,
+      "peak_allocated_bytes": 545792,
+      "peak_reserved_bytes": 545792,
+      "memory_overhead_ratio": 1.027,
+      "theoretical_min_bytes": 531456,
+      "theoretical_conservative_bytes": 971816
     },
     {
       "framework": "JAX",
@@ -1788,7 +2113,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_4 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.5
+      "top_layer_share_pct": 1.5,
+      "peak_allocated_bytes": 545792,
+      "peak_reserved_bytes": 545792,
+      "memory_overhead_ratio": 1.027,
+      "theoretical_min_bytes": 531456,
+      "theoretical_conservative_bytes": 971816
     },
     {
       "framework": "JAX",
@@ -1815,7 +2145,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_4 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.2
+      "top_layer_share_pct": 1.2,
+      "peak_allocated_bytes": 660480,
+      "peak_reserved_bytes": 660480,
+      "memory_overhead_ratio": 1.2101,
+      "theoretical_min_bytes": 545792,
+      "theoretical_conservative_bytes": 4068672
     },
     {
       "framework": "JAX",
@@ -1842,7 +2177,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_4 (matmul, memory-bound)",
-      "top_layer_share_pct": 1.2
+      "top_layer_share_pct": 1.2,
+      "peak_allocated_bytes": 660480,
+      "peak_reserved_bytes": 660480,
+      "memory_overhead_ratio": 1.2101,
+      "theoretical_min_bytes": 545792,
+      "theoretical_conservative_bytes": 4068672
     },
     {
       "framework": "JAX",
@@ -1869,7 +2209,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_4 (matmul, memory-bound)",
-      "top_layer_share_pct": 0.7
+      "top_layer_share_pct": 0.7,
+      "peak_allocated_bytes": 1053696,
+      "peak_reserved_bytes": 1053696,
+      "memory_overhead_ratio": 1.7711,
+      "theoretical_min_bytes": 594944,
+      "theoretical_conservative_bytes": 14686464
     },
     {
       "framework": "JAX",
@@ -1896,7 +2241,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "dot_4 (matmul, memory-bound)",
-      "top_layer_share_pct": 0.7
+      "top_layer_share_pct": 0.7,
+      "peak_allocated_bytes": 1053696,
+      "peak_reserved_bytes": 1053696,
+      "memory_overhead_ratio": 1.7711,
+      "theoretical_min_bytes": 594944,
+      "theoretical_conservative_bytes": 14686464
     },
     {
       "framework": "JAX",
@@ -1923,7 +2273,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "add_6 (elementwise, memory-bound)",
-      "top_layer_share_pct": 0.6
+      "top_layer_share_pct": 0.6,
+      "peak_allocated_bytes": 2626560,
+      "peak_reserved_bytes": 2626560,
+      "memory_overhead_ratio": 3.3182,
+      "theoretical_min_bytes": 791552,
+      "theoretical_conservative_bytes": 57157632
     },
     {
       "framework": "JAX",
@@ -1950,7 +2305,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "add_6 (elementwise, memory-bound)",
-      "top_layer_share_pct": 0.6
+      "top_layer_share_pct": 0.6,
+      "peak_allocated_bytes": 2626560,
+      "peak_reserved_bytes": 2626560,
+      "memory_overhead_ratio": 3.3182,
+      "theoretical_min_bytes": 791552,
+      "theoretical_conservative_bytes": 57157632
     },
     {
       "framework": "JAX",
@@ -1977,7 +2337,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.007,
       "top_layer_bottleneck": "dot_20 (matmul, memory-bound)",
-      "top_layer_share_pct": 23.6
+      "top_layer_share_pct": 23.6,
+      "peak_allocated_bytes": 807936,
+      "peak_reserved_bytes": 807936,
+      "memory_overhead_ratio": 0.9427,
+      "theoretical_min_bytes": 857088,
+      "theoretical_conservative_bytes": 1083048
     },
     {
       "framework": "JAX",
@@ -2004,7 +2369,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.007,
       "top_layer_bottleneck": "dot_20 (matmul, memory-bound)",
-      "top_layer_share_pct": 23.6
+      "top_layer_share_pct": 23.6,
+      "peak_allocated_bytes": 807936,
+      "peak_reserved_bytes": 807936,
+      "memory_overhead_ratio": 0.9427,
+      "theoretical_min_bytes": 857088,
+      "theoretical_conservative_bytes": 1083048
     },
     {
       "framework": "JAX",
@@ -2031,7 +2401,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.039,
       "top_layer_bottleneck": "tanh_15 (elementwise, memory-bound)",
-      "top_layer_share_pct": 18.9
+      "top_layer_share_pct": 18.9,
+      "peak_allocated_bytes": 922624,
+      "peak_reserved_bytes": 922624,
+      "memory_overhead_ratio": 0.7012,
+      "theoretical_min_bytes": 1315840,
+      "theoretical_conservative_bytes": 2959680
     },
     {
       "framework": "JAX",
@@ -2058,7 +2433,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.039,
       "top_layer_bottleneck": "tanh_15 (elementwise, memory-bound)",
-      "top_layer_share_pct": 18.9
+      "top_layer_share_pct": 18.9,
+      "peak_allocated_bytes": 922624,
+      "peak_reserved_bytes": 922624,
+      "memory_overhead_ratio": 0.7012,
+      "theoretical_min_bytes": 1315840,
+      "theoretical_conservative_bytes": 2959680
     },
     {
       "framework": "JAX",
@@ -2085,7 +2465,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "tanh_15 (elementwise, memory-bound)",
-      "top_layer_share_pct": 19.9
+      "top_layer_share_pct": 19.9,
+      "peak_allocated_bytes": 1315840,
+      "peak_reserved_bytes": 1315840,
+      "memory_overhead_ratio": 0.4555,
+      "theoretical_min_bytes": 2888704,
+      "theoretical_conservative_bytes": 9464064
     },
     {
       "framework": "JAX",
@@ -2112,7 +2497,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "tanh_15 (elementwise, memory-bound)",
-      "top_layer_share_pct": 19.9
+      "top_layer_share_pct": 19.9,
+      "peak_allocated_bytes": 1315840,
+      "peak_reserved_bytes": 1315840,
+      "memory_overhead_ratio": 0.4555,
+      "theoretical_min_bytes": 2888704,
+      "theoretical_conservative_bytes": 9464064
     },
     {
       "framework": "JAX",
@@ -2139,7 +2529,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "tanh_15 (elementwise, memory-bound)",
-      "top_layer_share_pct": 20.1
+      "top_layer_share_pct": 20.1,
+      "peak_allocated_bytes": 2888704,
+      "peak_reserved_bytes": 2888704,
+      "memory_overhead_ratio": 0.3147,
+      "theoretical_min_bytes": 9180160,
+      "theoretical_conservative_bytes": 35481600
     },
     {
       "framework": "JAX",
@@ -2166,7 +2561,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "tanh_15 (elementwise, memory-bound)",
-      "top_layer_share_pct": 20.1
+      "top_layer_share_pct": 20.1,
+      "peak_allocated_bytes": 2888704,
+      "peak_reserved_bytes": 2888704,
+      "memory_overhead_ratio": 0.3147,
+      "theoretical_min_bytes": 9180160,
+      "theoretical_conservative_bytes": 35481600
     },
     {
       "framework": "TensorFlow",
@@ -2193,7 +2593,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.002,
       "top_layer_bottleneck": "dense (linear, memory-bound)",
-      "top_layer_share_pct": 84.5
+      "top_layer_share_pct": 84.5,
+      "peak_allocated_bytes": 3136,
+      "peak_reserved_bytes": 3136,
+      "memory_overhead_ratio": 0.0066,
+      "theoretical_min_bytes": 475688,
+      "theoretical_conservative_bytes": 477264
     },
     {
       "framework": "TensorFlow",
@@ -2220,7 +2625,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.002,
       "top_layer_bottleneck": "dense (linear, memory-bound)",
-      "top_layer_share_pct": 84.5
+      "top_layer_share_pct": 84.5,
+      "peak_allocated_bytes": 3136,
+      "peak_reserved_bytes": 3136,
+      "memory_overhead_ratio": 0.0066,
+      "theoretical_min_bytes": 475688,
+      "theoretical_conservative_bytes": 477264
     },
     {
       "framework": "TensorFlow",
@@ -2247,7 +2657,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.003,
       "top_layer_bottleneck": "dense_3 (linear, memory-bound)",
-      "top_layer_share_pct": 81.2
+      "top_layer_share_pct": 81.2,
+      "peak_allocated_bytes": 25088,
+      "peak_reserved_bytes": 25088,
+      "memory_overhead_ratio": 0.0523,
+      "theoretical_min_bytes": 479272,
+      "theoretical_conservative_bytes": 491880
     },
     {
       "framework": "TensorFlow",
@@ -2274,7 +2689,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.003,
       "top_layer_bottleneck": "dense_3 (linear, memory-bound)",
-      "top_layer_share_pct": 81.2
+      "top_layer_share_pct": 81.2,
+      "peak_allocated_bytes": 25088,
+      "peak_reserved_bytes": 25088,
+      "memory_overhead_ratio": 0.0523,
+      "theoretical_min_bytes": 479272,
+      "theoretical_conservative_bytes": 491880
     },
     {
       "framework": "TensorFlow",
@@ -2301,7 +2721,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.004,
       "top_layer_bottleneck": "dense_6 (linear, memory-bound)",
-      "top_layer_share_pct": 73.5
+      "top_layer_share_pct": 73.5,
+      "peak_allocated_bytes": 100352,
+      "peak_reserved_bytes": 100352,
+      "memory_overhead_ratio": 0.2042,
+      "theoretical_min_bytes": 491560,
+      "theoretical_conservative_bytes": 541992
     },
     {
       "framework": "TensorFlow",
@@ -2328,7 +2753,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.004,
       "top_layer_bottleneck": "dense_6 (linear, memory-bound)",
-      "top_layer_share_pct": 73.5
+      "top_layer_share_pct": 73.5,
+      "peak_allocated_bytes": 100352,
+      "peak_reserved_bytes": 100352,
+      "memory_overhead_ratio": 0.2042,
+      "theoretical_min_bytes": 491560,
+      "theoretical_conservative_bytes": 541992
     },
     {
       "framework": "TensorFlow",
@@ -2355,7 +2785,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.012,
       "top_layer_bottleneck": "dense_9 (linear, memory-bound)",
-      "top_layer_share_pct": 61.9
+      "top_layer_share_pct": 61.9,
+      "peak_allocated_bytes": 401408,
+      "peak_reserved_bytes": 401408,
+      "memory_overhead_ratio": 0.7424,
+      "theoretical_min_bytes": 540712,
+      "theoretical_conservative_bytes": 742440
     },
     {
       "framework": "TensorFlow",
@@ -2382,7 +2817,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.012,
       "top_layer_bottleneck": "dense_9 (linear, memory-bound)",
-      "top_layer_share_pct": 61.9
+      "top_layer_share_pct": 61.9,
+      "peak_allocated_bytes": 401408,
+      "peak_reserved_bytes": 401408,
+      "memory_overhead_ratio": 0.7424,
+      "theoretical_min_bytes": 540712,
+      "theoretical_conservative_bytes": 742440
     },
     {
       "framework": "TensorFlow",
@@ -2409,7 +2849,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.016,
       "top_layer_bottleneck": "conv2d_1 (conv2d, compute-bound)",
-      "top_layer_share_pct": 39.3
+      "top_layer_share_pct": 39.3,
+      "peak_allocated_bytes": 12288,
+      "peak_reserved_bytes": 12288,
+      "memory_overhead_ratio": 0.0214,
+      "theoretical_min_bytes": 572968,
+      "theoretical_conservative_bytes": 1163344
     },
     {
       "framework": "TensorFlow",
@@ -2436,7 +2881,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.016,
       "top_layer_bottleneck": "conv2d_1 (conv2d, compute-bound)",
-      "top_layer_share_pct": 39.3
+      "top_layer_share_pct": 39.3,
+      "peak_allocated_bytes": 12288,
+      "peak_reserved_bytes": 12288,
+      "memory_overhead_ratio": 0.0214,
+      "theoretical_min_bytes": 572968,
+      "theoretical_conservative_bytes": 1163344
     },
     {
       "framework": "TensorFlow",
@@ -2463,7 +2913,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv2d_3 (conv2d, compute-bound)",
-      "top_layer_share_pct": 39.4
+      "top_layer_share_pct": 39.4,
+      "peak_allocated_bytes": 98304,
+      "peak_reserved_bytes": 98304,
+      "memory_overhead_ratio": 0.0408,
+      "theoretical_min_bytes": 2407976,
+      "theoretical_conservative_bytes": 7130984
     },
     {
       "framework": "TensorFlow",
@@ -2490,7 +2945,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv2d_3 (conv2d, compute-bound)",
-      "top_layer_share_pct": 39.4
+      "top_layer_share_pct": 39.4,
+      "peak_allocated_bytes": 98304,
+      "peak_reserved_bytes": 98304,
+      "memory_overhead_ratio": 0.0408,
+      "theoretical_min_bytes": 2407976,
+      "theoretical_conservative_bytes": 7130984
     },
     {
       "framework": "TensorFlow",
@@ -2517,7 +2977,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv2d_5 (conv2d, compute-bound)",
-      "top_layer_share_pct": 39.4
+      "top_layer_share_pct": 39.4,
+      "peak_allocated_bytes": 393216,
+      "peak_reserved_bytes": 393216,
+      "memory_overhead_ratio": 0.0452,
+      "theoretical_min_bytes": 8699432,
+      "theoretical_conservative_bytes": 27591464
     },
     {
       "framework": "TensorFlow",
@@ -2544,7 +3009,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv2d_5 (conv2d, compute-bound)",
-      "top_layer_share_pct": 39.4
+      "top_layer_share_pct": 39.4,
+      "peak_allocated_bytes": 393216,
+      "peak_reserved_bytes": 393216,
+      "memory_overhead_ratio": 0.0452,
+      "theoretical_min_bytes": 8699432,
+      "theoretical_conservative_bytes": 27591464
     },
     {
       "framework": "TensorFlow",
@@ -2571,7 +3041,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv2d_7 (conv2d, compute-bound)",
-      "top_layer_share_pct": 39.5
+      "top_layer_share_pct": 39.5,
+      "peak_allocated_bytes": 1572864,
+      "peak_reserved_bytes": 1572864,
+      "memory_overhead_ratio": 0.0464,
+      "theoretical_min_bytes": 33865256,
+      "theoretical_conservative_bytes": 109433384
     },
     {
       "framework": "TensorFlow",
@@ -2598,7 +3073,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "conv2d_7 (conv2d, compute-bound)",
-      "top_layer_share_pct": 39.5
+      "top_layer_share_pct": 39.5,
+      "peak_allocated_bytes": 1572864,
+      "peak_reserved_bytes": 1572864,
+      "memory_overhead_ratio": 0.0464,
+      "theoretical_min_bytes": 33865256,
+      "theoretical_conservative_bytes": 109433384
     },
     {
       "framework": "TensorFlow",
@@ -2625,7 +3105,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.005,
       "top_layer_bottleneck": "gru.ih (linear, memory-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 16384,
+      "peak_reserved_bytes": 16384,
+      "memory_overhead_ratio": 0.0193,
+      "theoretical_min_bytes": 846888,
+      "theoretical_conservative_bytes": 994384
     },
     {
       "framework": "TensorFlow",
@@ -2652,7 +3137,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.005,
       "top_layer_bottleneck": "gru.ih (linear, memory-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 16384,
+      "peak_reserved_bytes": 16384,
+      "memory_overhead_ratio": 0.0193,
+      "theoretical_min_bytes": 846888,
+      "theoretical_conservative_bytes": 994384
     },
     {
       "framework": "TensorFlow",
@@ -2679,7 +3169,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.039,
       "top_layer_bottleneck": "gru_2.ih (linear, memory-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 131072,
+      "peak_reserved_bytes": 131072,
+      "memory_overhead_ratio": 0.1101,
+      "theoretical_min_bytes": 1190952,
+      "theoretical_conservative_bytes": 2370920
     },
     {
       "framework": "TensorFlow",
@@ -2706,7 +3201,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.039,
       "top_layer_bottleneck": "gru_2.ih (linear, memory-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 131072,
+      "peak_reserved_bytes": 131072,
+      "memory_overhead_ratio": 0.1101,
+      "theoretical_min_bytes": 1190952,
+      "theoretical_conservative_bytes": 2370920
     },
     {
       "framework": "TensorFlow",
@@ -2733,7 +3233,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "gru_4.ih (linear, compute-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 524288,
+      "peak_reserved_bytes": 524288,
+      "memory_overhead_ratio": 0.2212,
+      "theoretical_min_bytes": 2370600,
+      "theoretical_conservative_bytes": 7090472
     },
     {
       "framework": "TensorFlow",
@@ -2760,7 +3265,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "gru_4.ih (linear, compute-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 524288,
+      "peak_reserved_bytes": 524288,
+      "memory_overhead_ratio": 0.2212,
+      "theoretical_min_bytes": 2370600,
+      "theoretical_conservative_bytes": 7090472
     },
     {
       "framework": "TensorFlow",
@@ -2787,7 +3297,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "gru_6.ih (linear, compute-bound)",
-      "top_layer_share_pct": 25.0
+      "top_layer_share_pct": 25.0,
+      "peak_allocated_bytes": 2097152,
+      "peak_reserved_bytes": 2097152,
+      "memory_overhead_ratio": 0.2958,
+      "theoretical_min_bytes": 7089192,
+      "theoretical_conservative_bytes": 25968680
     },
     {
       "framework": "TensorFlow",
@@ -2814,7 +3329,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "gru_6.ih (linear, compute-bound)",
-      "top_layer_share_pct": 25.0
+      "top_layer_share_pct": 25.0,
+      "peak_allocated_bytes": 2097152,
+      "peak_reserved_bytes": 2097152,
+      "memory_overhead_ratio": 0.2958,
+      "theoretical_min_bytes": 7089192,
+      "theoretical_conservative_bytes": 25968680
     },
     {
       "framework": "TensorFlow",
@@ -2841,7 +3361,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.007,
       "top_layer_bottleneck": "lstm.ih (linear, memory-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 16384,
+      "peak_reserved_bytes": 16384,
+      "memory_overhead_ratio": 0.0146,
+      "theoretical_min_bytes": 1123368,
+      "theoretical_conservative_bytes": 1320016
     },
     {
       "framework": "TensorFlow",
@@ -2868,7 +3393,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.007,
       "top_layer_bottleneck": "lstm.ih (linear, memory-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 16384,
+      "peak_reserved_bytes": 16384,
+      "memory_overhead_ratio": 0.0146,
+      "theoretical_min_bytes": 1123368,
+      "theoretical_conservative_bytes": 1320016
     },
     {
       "framework": "TensorFlow",
@@ -2895,7 +3425,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.052,
       "top_layer_bottleneck": "lstm_2.ih (linear, memory-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 131072,
+      "peak_reserved_bytes": 131072,
+      "memory_overhead_ratio": 0.0828,
+      "theoretical_min_bytes": 1582120,
+      "theoretical_conservative_bytes": 3155304
     },
     {
       "framework": "TensorFlow",
@@ -2922,7 +3457,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.052,
       "top_layer_bottleneck": "lstm_2.ih (linear, memory-bound)",
-      "top_layer_share_pct": 24.9
+      "top_layer_share_pct": 24.9,
+      "peak_allocated_bytes": 131072,
+      "peak_reserved_bytes": 131072,
+      "memory_overhead_ratio": 0.0828,
+      "theoretical_min_bytes": 1582120,
+      "theoretical_conservative_bytes": 3155304
     },
     {
       "framework": "TensorFlow",
@@ -2949,7 +3489,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "lstm_4.ih (linear, compute-bound)",
-      "top_layer_share_pct": 25.0
+      "top_layer_share_pct": 25.0,
+      "peak_allocated_bytes": 524288,
+      "peak_reserved_bytes": 524288,
+      "memory_overhead_ratio": 0.1662,
+      "theoretical_min_bytes": 3154984,
+      "theoretical_conservative_bytes": 9447720
     },
     {
       "framework": "TensorFlow",
@@ -2976,7 +3521,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "lstm_4.ih (linear, compute-bound)",
-      "top_layer_share_pct": 25.0
+      "top_layer_share_pct": 25.0,
+      "peak_allocated_bytes": 524288,
+      "peak_reserved_bytes": 524288,
+      "memory_overhead_ratio": 0.1662,
+      "theoretical_min_bytes": 3154984,
+      "theoretical_conservative_bytes": 9447720
     },
     {
       "framework": "TensorFlow",
@@ -3003,7 +3553,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "lstm_6.ih (linear, compute-bound)",
-      "top_layer_share_pct": 25.0
+      "top_layer_share_pct": 25.0,
+      "peak_allocated_bytes": 2097152,
+      "peak_reserved_bytes": 2097152,
+      "memory_overhead_ratio": 0.222,
+      "theoretical_min_bytes": 9446440,
+      "theoretical_conservative_bytes": 34617384
     },
     {
       "framework": "TensorFlow",
@@ -3030,7 +3585,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "lstm_6.ih (linear, compute-bound)",
-      "top_layer_share_pct": 25.0
+      "top_layer_share_pct": 25.0,
+      "peak_allocated_bytes": 2097152,
+      "peak_reserved_bytes": 2097152,
+      "memory_overhead_ratio": 0.222,
+      "theoretical_min_bytes": 9446440,
+      "theoretical_conservative_bytes": 34617384
     },
     {
       "framework": "TensorFlow",
@@ -3057,7 +3617,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.01,
       "top_layer_bottleneck": "dense_24 (linear, memory-bound)",
-      "top_layer_share_pct": 19.5
+      "top_layer_share_pct": 19.5,
+      "peak_allocated_bytes": 16384,
+      "peak_reserved_bytes": 16384,
+      "memory_overhead_ratio": 0.0099,
+      "theoretical_min_bytes": 1656872,
+      "theoretical_conservative_bytes": 1853520
     },
     {
       "framework": "TensorFlow",
@@ -3084,7 +3649,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.01,
       "top_layer_bottleneck": "dense_24 (linear, memory-bound)",
-      "top_layer_share_pct": 19.5
+      "top_layer_share_pct": 19.5,
+      "peak_allocated_bytes": 16384,
+      "peak_reserved_bytes": 16384,
+      "memory_overhead_ratio": 0.0099,
+      "theoretical_min_bytes": 1656872,
+      "theoretical_conservative_bytes": 1853520
     },
     {
       "framework": "TensorFlow",
@@ -3111,7 +3681,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.081,
       "top_layer_bottleneck": "multi_head_attention_2 (attention, compute-bound)",
-      "top_layer_share_pct": 14.8
+      "top_layer_share_pct": 14.8,
+      "peak_allocated_bytes": 131072,
+      "peak_reserved_bytes": 131072,
+      "memory_overhead_ratio": 0.062,
+      "theoretical_min_bytes": 2115624,
+      "theoretical_conservative_bytes": 3688808
     },
     {
       "framework": "TensorFlow",
@@ -3138,7 +3713,12 @@
       "cache_name": "SLC",
       "cache_bound_ms": 0.081,
       "top_layer_bottleneck": "multi_head_attention_2 (attention, compute-bound)",
-      "top_layer_share_pct": 14.8
+      "top_layer_share_pct": 14.8,
+      "peak_allocated_bytes": 131072,
+      "peak_reserved_bytes": 131072,
+      "memory_overhead_ratio": 0.062,
+      "theoretical_min_bytes": 2115624,
+      "theoretical_conservative_bytes": 3688808
     },
     {
       "framework": "TensorFlow",
@@ -3165,7 +3745,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "multi_head_attention_4 (attention, compute-bound)",
-      "top_layer_share_pct": 15.2
+      "top_layer_share_pct": 15.2,
+      "peak_allocated_bytes": 524288,
+      "peak_reserved_bytes": 524288,
+      "memory_overhead_ratio": 0.1421,
+      "theoretical_min_bytes": 3688488,
+      "theoretical_conservative_bytes": 9981224
     },
     {
       "framework": "TensorFlow",
@@ -3192,7 +3777,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "multi_head_attention_4 (attention, compute-bound)",
-      "top_layer_share_pct": 15.2
+      "top_layer_share_pct": 15.2,
+      "peak_allocated_bytes": 524288,
+      "peak_reserved_bytes": 524288,
+      "memory_overhead_ratio": 0.1421,
+      "theoretical_min_bytes": 3688488,
+      "theoretical_conservative_bytes": 9981224
     },
     {
       "framework": "TensorFlow",
@@ -3219,7 +3809,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "multi_head_attention_6 (attention, compute-bound)",
-      "top_layer_share_pct": 15.2
+      "top_layer_share_pct": 15.2,
+      "peak_allocated_bytes": 2097152,
+      "peak_reserved_bytes": 2097152,
+      "memory_overhead_ratio": 0.2101,
+      "theoretical_min_bytes": 9979944,
+      "theoretical_conservative_bytes": 35150888
     },
     {
       "framework": "TensorFlow",
@@ -3246,7 +3841,12 @@
       "cache_name": null,
       "cache_bound_ms": null,
       "top_layer_bottleneck": "multi_head_attention_6 (attention, compute-bound)",
-      "top_layer_share_pct": 15.2
+      "top_layer_share_pct": 15.2,
+      "peak_allocated_bytes": 2097152,
+      "peak_reserved_bytes": 2097152,
+      "memory_overhead_ratio": 0.2101,
+      "theoretical_min_bytes": 9979944,
+      "theoretical_conservative_bytes": 35150888
     }
   ]
 }
