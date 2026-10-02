@@ -45,5 +45,3 @@ def profile_model(
         fused_cost=estimate_fused_operations(operations),
         operations=operations,
     )
-
-

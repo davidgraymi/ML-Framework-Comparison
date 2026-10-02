@@ -28,7 +28,9 @@ class HardwareTests(unittest.TestCase):
             HardwareSpec(name="TestGPU", peak_flops=1e12, memory_bandwidth=-1)
 
     def test_optional_memory_capacity(self):
-        spec = HardwareSpec(name="TestGPU", peak_flops=1e12, memory_bandwidth=1e9, memory_capacity=1024)
+        spec = HardwareSpec(
+            name="TestGPU", peak_flops=1e12, memory_bandwidth=1e9, memory_capacity=1024
+        )
         self.assertEqual(spec.memory_capacity, 1024)
 
     def test_cache_spec_valid(self):
@@ -60,4 +62,3 @@ class HardwareTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

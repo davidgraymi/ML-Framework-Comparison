@@ -41,7 +41,10 @@ class MemoryEstimate:
 
 
 def estimate_memory(
-    operations: Iterable[Operation], *, training: bool = False, optimizer_state_multiplier: float = 0.0
+    operations: Iterable[Operation],
+    *,
+    training: bool = False,
+    optimizer_state_multiplier: float = 0.0,
 ) -> MemoryEstimate:
     """Estimate parameter and activation storage from portable operations.
 
@@ -63,7 +66,11 @@ def estimate_memory(
 
         declared = operation.attrs.get("parameter_bytes")
         parameter_id = operation.attrs.get("parameter_id")
-        if declared is None and operation.kind in {"linear", "conv2d"} and len(operation.inputs) >= 2:
+        if (
+            declared is None
+            and operation.kind in {"linear", "conv2d"}
+            and len(operation.inputs) >= 2
+        ):
             declared = numel(operation.inputs[1]) * operation.dtype_bytes
         if declared is None:
             continue

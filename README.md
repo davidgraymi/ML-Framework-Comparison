@@ -368,3 +368,21 @@ and optimizer state but does not yet trace a full backward graph.  Activation
 checkpointing, distributed communication, dynamic shapes, fusion details,
 complete graph coverage, and non-PyTorch kernel-level traces remain deliberate
 next increments rather than silently approximated.
+
+## Development
+
+Format and lint the codebase with a single command:
+
+```bash
+# Auto-format and fix linting in place:
+python scripts/format.py
+# Or using the shell wrapper:
+./scripts/format.sh
+# Or via Make:
+make format
+
+# Check formatting and linting without modifying files:
+python scripts/format.py --check
+# Or:
+make check
+```

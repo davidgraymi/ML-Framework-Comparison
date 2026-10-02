@@ -52,7 +52,9 @@ class AnalysisTests(unittest.TestCase):
     def test_findings_generation_capacity_exceeded(self):
         estimate = CostEstimate(flops=1000, read_bytes=1000, write_bytes=1000, operations=1)
         measurement = Measurement(median_seconds=1.0, samples_seconds=(1.0,))
-        hardware = HardwareSpec("test", peak_flops=10000, memory_bandwidth=1000000, memory_capacity=1000)
+        hardware = HardwareSpec(
+            "test", peak_flops=10000, memory_bandwidth=1000000, memory_capacity=1000
+        )
         result = analyze_gap(estimate, measurement, hardware)
         self.assertTrue(any("exceeds device memory capacity" in f for f in result.findings))
 
@@ -68,20 +70,42 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("GFLOP/s", rendered)
 
     def test_analyze_memory_gap_none_telemetry(self):
-        estimate = MemoryEstimate(parameter_bytes=100, activation_bytes=100, minimum_peak_activation_bytes=50, conservative_peak_activation_bytes=100)
-        measurement = Measurement(median_seconds=1.0, samples_seconds=(1.0,), 
-                                  peak_memory_bytes=None, allocated_memory_bytes=None, reserved_memory_bytes=None)
+        estimate = MemoryEstimate(
+            parameter_bytes=100,
+            activation_bytes=100,
+            minimum_peak_activation_bytes=50,
+            conservative_peak_activation_bytes=100,
+        )
+        measurement = Measurement(
+            median_seconds=1.0,
+            samples_seconds=(1.0,),
+            peak_memory_bytes=None,
+            allocated_memory_bytes=None,
+            reserved_memory_bytes=None,
+        )
         result = analyze_memory_gap(estimate, measurement)
         self.assertTrue(any("No allocator telemetry" in f for f in result.findings))
         self.assertIsNone(result.overhead_ratio)
 
     def test_analyze_memory_gap_high_overhead_and_reserved(self):
-        estimate = MemoryEstimate(parameter_bytes=100, activation_bytes=100, minimum_peak_activation_bytes=50, conservative_peak_activation_bytes=100)
-        measurement = Measurement(median_seconds=1.0, samples_seconds=(1.0,),
-                                  peak_memory_bytes=400, allocated_memory_bytes=400, reserved_memory_bytes=500)
+        estimate = MemoryEstimate(
+            parameter_bytes=100,
+            activation_bytes=100,
+            minimum_peak_activation_bytes=50,
+            conservative_peak_activation_bytes=100,
+        )
+        measurement = Measurement(
+            median_seconds=1.0,
+            samples_seconds=(1.0,),
+            peak_memory_bytes=400,
+            allocated_memory_bytes=400,
+            reserved_memory_bytes=500,
+        )
         result = analyze_memory_gap(estimate, measurement)
         self.assertTrue(any("exceeds conservative tensor storage" in f for f in result.findings))
-        self.assertTrue(any("Reserved memory exceeds allocated memory" in f for f in result.findings))
+        self.assertTrue(
+            any("Reserved memory exceeds allocated memory" in f for f in result.findings)
+        )
         self.assertEqual(result.overhead_ratio, 2.0)
 
     def test_analyze_gap_cache_residency(self):
@@ -156,7 +180,12 @@ class AnalysisTests(unittest.TestCase):
 
     def test_analyze_model_gap(self):
         cost_est = CostEstimate(flops=1000, read_bytes=100, write_bytes=100, operations=1)
-        mem_est = MemoryEstimate(parameter_bytes=100, activation_bytes=100, minimum_peak_activation_bytes=50, conservative_peak_activation_bytes=100)
+        mem_est = MemoryEstimate(
+            parameter_bytes=100,
+            activation_bytes=100,
+            minimum_peak_activation_bytes=50,
+            conservative_peak_activation_bytes=100,
+        )
         profile = ModelProfile(cost=cost_est, memory=mem_est)
         measurement = Measurement(median_seconds=0.1, samples_seconds=(0.1,))
         hardware = HardwareSpec("test", peak_flops=10000, memory_bandwidth=1000000)
@@ -165,8 +194,6 @@ class AnalysisTests(unittest.TestCase):
         self.assertIsInstance(result.performance, GapAnalysis)
         self.assertIsInstance(result.memory, MemoryGapAnalysis)
 
+
 if __name__ == "__main__":
     unittest.main()
-
-
-

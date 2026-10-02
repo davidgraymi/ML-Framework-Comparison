@@ -27,10 +27,12 @@ class ProfilerTests(unittest.TestCase):
 
     def test_measurement_negative_median_raises(self) -> None:
         from neural_cost.profiler import Measurement
+
         with self.assertRaises(ValueError):
             Measurement(median_seconds=-0.1, samples_seconds=(-0.1,))
 
     def test_measurement_negative_memory_raises(self) -> None:
         from neural_cost.profiler import Measurement
+
         with self.assertRaises(ValueError):
             Measurement(median_seconds=0.1, samples_seconds=(0.1,), peak_memory_bytes=-100)

@@ -10,6 +10,7 @@ class MockAdapter(FrameworkAdapter):
     def operations(self, model, example_inputs):
         yield Operation("fc", "linear", ((4, 8), (8, 16)), (4, 16), dtype_bytes=4)
 
+
 class ApiTests(unittest.TestCase):
     def test_estimate_model(self):
         adapter = MockAdapter()
@@ -18,6 +19,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(estimate.flops, 1024)
         self.assertEqual(estimate.read_bytes, (32 + 128) * 4)
         self.assertEqual(estimate.write_bytes, 64 * 4)
+
 
 if __name__ == "__main__":
     unittest.main()

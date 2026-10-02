@@ -57,4 +57,3 @@ class HardwareSpec:
         if not fitting:
             return None
         return min(fitting, key=lambda c: c.capacity)
-

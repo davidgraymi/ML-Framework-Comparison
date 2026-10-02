@@ -29,7 +29,9 @@ class JaxAdapter(FrameworkAdapter):
             out_avals = [value.aval for value in equation.outvars if hasattr(value, "aval")]
             if not out_avals or not hasattr(out_avals[0], "shape"):
                 continue
-            input_shapes = tuple(tuple(int(d) for d in aval.shape) for aval in in_avals if hasattr(aval, "shape"))
+            input_shapes = tuple(
+                tuple(int(d) for d in aval.shape) for aval in in_avals if hasattr(aval, "shape")
+            )
             output_shape = tuple(int(d) for d in out_avals[0].shape)
             dtype_bytes = int(out_avals[0].dtype.itemsize)
             if primitive == "dot_general" and len(input_shapes) == 2:
@@ -40,18 +42,61 @@ class JaxAdapter(FrameworkAdapter):
                             "parameter_bytes": numel(input_shapes[1]) * dtype_bytes,
                             "parameter_id": id(equation.invars[1]),
                         }
-                    operations.append(Operation(f"dot_{index}", "matmul", input_shapes, output_shape, dtype_bytes, attrs))
+                    operations.append(
+                        Operation(
+                            f"dot_{index}", "matmul", input_shapes, output_shape, dtype_bytes, attrs
+                        )
+                    )
             elif primitive == "conv_general_dilated":
-                if len(input_shapes) == 2 and len(input_shapes[0]) == 4 and len(input_shapes[1]) == 4:
+                if (
+                    len(input_shapes) == 2
+                    and len(input_shapes[0]) == 4
+                    and len(input_shapes[1]) == 4
+                ):
                     attrs = {}
                     if id(equation.invars[1]) in parameters:
                         attrs = {
                             "parameter_bytes": numel(input_shapes[1]) * dtype_bytes,
                             "parameter_id": id(equation.invars[1]),
                         }
-                    operations.append(Operation(f"conv_{index}", "conv2d", input_shapes, output_shape, dtype_bytes, attrs))
-            elif primitive in {"add", "mul", "max", "exp", "tanh", "logistic", "sub", "neg", "sin", "cos", "rsqrt", "integer_pow", "abs", "log", "sqrt", "reduce_sum", "reduce_max"}:
-                operations.append(Operation(f"{primitive}_{index}", "elementwise", input_shapes, output_shape, dtype_bytes))
+                    operations.append(
+                        Operation(
+                            f"conv_{index}",
+                            "conv2d",
+                            input_shapes,
+                            output_shape,
+                            dtype_bytes,
+                            attrs,
+                        )
+                    )
+            elif primitive in {
+                "add",
+                "mul",
+                "max",
+                "exp",
+                "tanh",
+                "logistic",
+                "sub",
+                "neg",
+                "sin",
+                "cos",
+                "rsqrt",
+                "integer_pow",
+                "abs",
+                "log",
+                "sqrt",
+                "reduce_sum",
+                "reduce_max",
+            }:
+                operations.append(
+                    Operation(
+                        f"{primitive}_{index}",
+                        "elementwise",
+                        input_shapes,
+                        output_shape,
+                        dtype_bytes,
+                    )
+                )
         return operations
 
     def benchmark(

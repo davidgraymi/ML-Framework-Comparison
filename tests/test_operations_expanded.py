@@ -47,7 +47,7 @@ class TestOperationsExpanded(unittest.TestCase):
             inputs=((1, 3, 10, 10),),
             output=(1, 3, 5, 5),
             dtype_bytes=2,
-            attrs={"kernel_size": (2, 2)}
+            attrs={"kernel_size": (2, 2)},
         )
         est = estimate_operation(op)
         # numel(output) * kH * kW = 75 * 2 * 2 = 300
@@ -62,7 +62,9 @@ class TestOperationsExpanded(unittest.TestCase):
             dtype_bytes=2,
             # missing attrs
         )
-        with self.assertRaisesRegex(ValueError, r"pooling requires attrs\['kernel_size'\] as \(kH, kW\)"):
+        with self.assertRaisesRegex(
+            ValueError, r"pooling requires attrs\['kernel_size'\] as \(kH, kW\)"
+        ):
             estimate_operation(op)
 
     def test_all_new_kinds_in_operation_kind(self):
@@ -78,16 +80,17 @@ class TestOperationsExpanded(unittest.TestCase):
         est = estimate_operation(op)
         self.assertEqual(est.read_bytes, 40)
         self.assertEqual(est.write_bytes, 40)
-        
+
         # LayerNorm
         op = Operation("op2", "layernorm", ((10,), (10,)), (10,), 2)
         est = estimate_operation(op)
-        self.assertEqual(est.read_bytes, 40) # (10 + 10) * 2
-        self.assertEqual(est.write_bytes, 20) # 10 * 2
-        
+        self.assertEqual(est.read_bytes, 40)  # (10 + 10) * 2
+        self.assertEqual(est.write_bytes, 20)  # 10 * 2
+
     def test_invalid_kind_raises(self):
         with self.assertRaisesRegex(ValueError, "unsupported operation kind"):
             Operation("bad", "bogus", ((10,),), (10,))
-        
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     unittest.main()

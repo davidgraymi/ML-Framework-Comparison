@@ -1,4 +1,5 @@
 """Console entry point for neural-cost-compare."""
+
 from __future__ import annotations
 
 import argparse
@@ -16,13 +17,14 @@ from neural_cost.hardware_detect import detect_hardware
 # Data model
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Result:
     framework: str
-    shape_label: str           # e.g. "64×1024×1024"
+    shape_label: str  # e.g. "64×1024×1024"
     flops: int
     bytes_moved: int
-    arith_intensity: float     # FLOP/byte
+    arith_intensity: float  # FLOP/byte
     median_ms: float
     stddev_ms: float
     efficiency: float
@@ -34,6 +36,7 @@ class Result:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def evaluate(
     name: str,
@@ -75,9 +78,9 @@ def evaluate(
 # Workload shapes: (batch_size, in_features, out_features)
 # Small batch  → memory-bound; large batch → compute-bound
 SHAPES: list[tuple[int, int, int]] = [
-    (1,   1024, 1024),
-    (16,  1024, 1024),
-    (64,  1024, 1024),
+    (1, 1024, 1024),
+    (16, 1024, 1024),
+    (64, 1024, 1024),
     (256, 1024, 1024),
 ]
 
@@ -94,8 +97,11 @@ def run_torch(hardware: HardwareSpec, warmup: int, repeats: int) -> list[Result]
     for batch, k, n in SHAPES:
         model = torch.nn.Linear(k, n, bias=False).eval()
         inputs = (torch.ones((batch, k)),)
-        results.append(evaluate("PyTorch", _label(batch, k, n), model, inputs,
-                                adapter, hardware, warmup, repeats))
+        results.append(
+            evaluate(
+                "PyTorch", _label(batch, k, n), model, inputs, adapter, hardware, warmup, repeats
+            )
+        )
     return results
 
 
@@ -111,8 +117,9 @@ def run_jax(hardware: HardwareSpec, warmup: int, repeats: int) -> list[Result]:
             return jnp.matmul(x, w)
 
         inputs = (jnp.ones((batch, k)), weight)
-        results.append(evaluate("JAX", _label(batch, k, n), model, inputs,
-                                adapter, hardware, warmup, repeats))
+        results.append(
+            evaluate("JAX", _label(batch, k, n), model, inputs, adapter, hardware, warmup, repeats)
+        )
     return results
 
 
@@ -124,8 +131,11 @@ def run_tensorflow(hardware: HardwareSpec, warmup: int, repeats: int) -> list[Re
     for batch, k, n in SHAPES:
         model = tf.keras.Sequential([tf.keras.layers.Dense(n, use_bias=False)])
         inputs = (tf.ones((batch, k)),)
-        results.append(evaluate("TensorFlow", _label(batch, k, n), model, inputs,
-                                adapter, hardware, warmup, repeats))
+        results.append(
+            evaluate(
+                "TensorFlow", _label(batch, k, n), model, inputs, adapter, hardware, warmup, repeats
+            )
+        )
     return results
 
 
@@ -141,14 +151,17 @@ def _bar(fraction: float, width: int = 20) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def print_hardware_header(hardware: HardwareSpec, detection_source: str,
-                          measured_bw: float) -> None:
+def print_hardware_header(
+    hardware: HardwareSpec, detection_source: str, measured_bw: float
+) -> None:
     print()
     print("┌─ Hardware ─────────────────────────────────────────────────────────────────")
     print(f"│  Chip / device   : {hardware.name}")
     print(f"│  Peak FP32       : {hardware.peak_flops / 1e12:.2f} TFLOP/s")
-    print(f"│  Peak bandwidth  : {hardware.memory_bandwidth / 1e9:.1f} GB/s  "
-          f"(measured NumPy STREAM: {measured_bw:.1f} GB/s)")
+    print(
+        f"│  Peak bandwidth  : {hardware.memory_bandwidth / 1e9:.1f} GB/s  "
+        f"(measured NumPy STREAM: {measured_bw:.1f} GB/s)"
+    )
     print(f"│  Ridge point     : {hardware.ridge_point:.1f} FLOP/byte")
     print(f"│  Source          : {detection_source}")
     print("└────────────────────────────────────────────────────────────────────────────")
@@ -157,8 +170,18 @@ def print_hardware_header(hardware: HardwareSpec, detection_source: str,
 
 def print_results(results: list[Result], hardware: HardwareSpec) -> None:
     col = {
-        "fw": 12, "shape": 14, "flops": 14, "bw": 10, "ai": 8, "med": 10, "sd": 8,
-        "eff": 8, "bar": 22, "gflops": 10, "gbw": 10, "bot": 8,
+        "fw": 12,
+        "shape": 14,
+        "flops": 14,
+        "bw": 10,
+        "ai": 8,
+        "med": 10,
+        "sd": 8,
+        "eff": 8,
+        "bar": 22,
+        "gflops": 10,
+        "gbw": 10,
+        "bot": 8,
     }
 
     header = (
@@ -205,11 +228,15 @@ def print_results(results: list[Result], hardware: HardwareSpec) -> None:
         )
 
     print(_SEP)
-    print("  AI = arithmetic intensity (FLOP/byte).  "
-          f"Ridge point = {hardware.ridge_point:.1f} FLOP/byte  "
-          "(above → compute-bound, below → memory-bound)")
-    print("  *Efficiency >100% means the hardware spec is slower than your actual "
-          "chip; use --peak-flops / --memory-bandwidth to calibrate.")
+    print(
+        "  AI = arithmetic intensity (FLOP/byte).  "
+        f"Ridge point = {hardware.ridge_point:.1f} FLOP/byte  "
+        "(above → compute-bound, below → memory-bound)"
+    )
+    print(
+        "  *Efficiency >100% means the hardware spec is slower than your actual "
+        "chip; use --peak-flops / --memory-bandwidth to calibrate."
+    )
     print()
 
 
@@ -225,9 +252,11 @@ def print_summary(results: list[Result]) -> None:
         mean_eff = mean(effs)
         best = max(rs, key=lambda r: r.efficiency)
         worst = min(rs, key=lambda r: r.efficiency)
-        print(f"│  {fw:<12}  mean efficiency {mean_eff:.1%}  "
-              f"best {best.efficiency:.1%} @ {best.shape_label}  "
-              f"worst {worst.efficiency:.1%} @ {worst.shape_label}")
+        print(
+            f"│  {fw:<12}  mean efficiency {mean_eff:.1%}  "
+            f"best {best.efficiency:.1%} @ {best.shape_label}  "
+            f"worst {worst.efficiency:.1%} @ {worst.shape_label}"
+        )
     print("└────────────────────────────────────────────────────────────────────────────")
     print()
 
@@ -236,19 +265,32 @@ def print_summary(results: list[Result]) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--peak-flops", type=float, default=None,
-                        help="Override peak FP32 FLOP/s (e.g. 3.6e12)")
-    parser.add_argument("--memory-bandwidth", type=float, default=None,
-                        help="Override memory bandwidth in bytes/s (e.g. 100e9)")
-    parser.add_argument("--bw-bench-mb", type=int, default=256,
-                        help="Working-set size in MiB for the bandwidth benchmark (default 256)")
-    parser.add_argument("--warmup", type=int, default=10,
-                        help="Framework warm-up iterations per shape (default 10)")
-    parser.add_argument("--repeats", type=int, default=30,
-                        help="Timed iterations per shape (default 30)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--peak-flops", type=float, default=None, help="Override peak FP32 FLOP/s (e.g. 3.6e12)"
+    )
+    parser.add_argument(
+        "--memory-bandwidth",
+        type=float,
+        default=None,
+        help="Override memory bandwidth in bytes/s (e.g. 100e9)",
+    )
+    parser.add_argument(
+        "--bw-bench-mb",
+        type=int,
+        default=256,
+        help="Working-set size in MiB for the bandwidth benchmark (default 256)",
+    )
+    parser.add_argument(
+        "--warmup", type=int, default=10, help="Framework warm-up iterations per shape (default 10)"
+    )
+    parser.add_argument(
+        "--repeats", type=int, default=30, help="Timed iterations per shape (default 30)"
+    )
     args = parser.parse_args()
 
     # --- Hardware detection ---
@@ -269,7 +311,7 @@ def main() -> None:
         "tensorflow": run_tensorflow,
     }
     all_results: list[Result] = []
-    
+
     adapters = available_adapters()
     for package in ["torch", "jax", "tensorflow"]:
         if package in adapters and package in runners:

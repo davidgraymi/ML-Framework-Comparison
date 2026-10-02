@@ -86,7 +86,11 @@ def estimate_operation(operation: Operation) -> CostEstimate:
             d = operation.output[-1]
             num_heads = int(operation.attrs.get("num_heads", 1))
             head_dim = d // max(num_heads, 1)
-            seq_len = int(operation.attrs.get("seq_len", operation.output[-2] if len(operation.output) >= 2 else 1))
+            seq_len = int(
+                operation.attrs.get(
+                    "seq_len", operation.output[-2] if len(operation.output) >= 2 else 1
+                )
+            )
             # 4 linear projections (Q, K, V, O)
             proj_flops = 4 * 2 * b_t * d * d
             # QKᵀ + AV per head  (2 passes over T×T×head_dim each)
@@ -221,4 +225,3 @@ def estimate_fused_operations(operations: Iterable[Operation]) -> FusedCostEstim
         eliminated_bytes=eliminated_total,
         fused_groups_count=fused_groups,
     )
-
