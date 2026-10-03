@@ -15,6 +15,7 @@ from .api import estimate_model
 from .estimate import (
     CostEstimate,
     FusedCostEstimate,
+    estimate_adamw_traffic,
     estimate_conv2d,
     estimate_fused_operations,
     estimate_operation,
@@ -48,6 +49,7 @@ __all__ = [
     "available_adapters",
     "benchmark",
     "detect_hardware",
+    "estimate_adamw_traffic",
     "estimate_conv2d",
     "estimate_fused_operations",
     "estimate_memory",
