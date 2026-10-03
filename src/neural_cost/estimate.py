@@ -79,7 +79,9 @@ def estimate_operation(operation: Operation) -> CostEstimate:
     cache misses, workspace, fusion, or allocator effects.  Those differences
     become visible in :func:`neural_cost.analyze_gap`.
     """
-    read_bytes = sum(numel(shape) for shape in operation.inputs) * operation.dtype_bytes
+    read_bytes = sum(numel(shape) for shape in operation.inputs) * operation.dtype_bytes + int(
+        operation.attrs.get("parameter_bytes", 0)
+    )
     write_bytes = numel(operation.output) * operation.dtype_bytes
     kind = operation.kind
 
@@ -102,6 +104,14 @@ def estimate_operation(operation: Operation) -> CostEstimate:
         flops = int(operation.attrs["flops"])
     elif kind == "softmax" or kind in {"layernorm", "batchnorm"}:
         flops = 5 * numel(operation.output)
+    elif kind == "rmsnorm":
+        flops = 3 * numel(operation.output)
+    elif kind == "swiglu":
+        flops = int(
+            operation.attrs.get(
+                "flops", operation.attrs.get("flops_per_element", 3) * numel(operation.output)
+            )
+        )
     elif kind == "embedding":
         # Embedding lookup: no multiply-accumulate FLOPs, just one read per token.
         # output shape is (batch, seq_len, embed_dim) or (N, embed_dim).
@@ -113,25 +123,37 @@ def estimate_operation(operation: Operation) -> CostEstimate:
         #   softmax               : 5 × B × H × T²
         #   weighted sum (AV)     : B × H × T × T × head_dim (2 FLOPs)
         # We approximate using output shape (B, T, D) and attrs.
-        if len(operation.output) >= 2:
+        if len(operation.output) >= 4:
+            b = operation.output[0]
+            num_heads = int(operation.attrs.get("num_heads", operation.output[1]))
+            seq_len = int(operation.attrs.get("seq_len", operation.output[2]))
+            head_dim = int(operation.attrs.get("head_dim", operation.output[3]))
+            d = num_heads * head_dim
+            b_t = b * seq_len
+        elif len(operation.output) >= 2:
             b_t = prod(operation.output[:-1])  # batch * seq combined
             d = operation.output[-1]
             num_heads = int(operation.attrs.get("num_heads", 1))
-            head_dim = d // max(num_heads, 1)
+            head_dim = int(operation.attrs.get("head_dim", d // max(num_heads, 1)))
             seq_len = int(
                 operation.attrs.get(
                     "seq_len", operation.output[-2] if len(operation.output) >= 2 else 1
                 )
             )
-            # 4 linear projections (Q, K, V, O)
-            proj_flops = 4 * 2 * b_t * d * d
-            # QKᵀ + AV per head  (2 passes over T×T×head_dim each)
-            attn_flops = 4 * b_t * num_heads * seq_len * head_dim
-            # softmax over seq_len per head (5 ops)
-            softmax_flops = 5 * b_t * num_heads * seq_len
-            flops = proj_flops + attn_flops + softmax_flops
         else:
-            flops = numel(operation.output)
+            b_t, d, num_heads, head_dim, seq_len = (
+                1,
+                numel(operation.output),
+                1,
+                numel(operation.output),
+                1,
+            )
+
+        include_projections = bool(operation.attrs.get("include_projections", True))
+        proj_flops = 4 * 2 * b_t * d * d if include_projections else 0
+        attn_flops = 4 * b_t * num_heads * seq_len * head_dim
+        softmax_flops = 5 * b_t * num_heads * seq_len
+        flops = proj_flops + attn_flops + softmax_flops
     elif kind == "pooling":
         kernel_size = operation.attrs.get("kernel_size")
         if not isinstance(kernel_size, tuple) or len(kernel_size) != 2:
@@ -193,8 +215,10 @@ _FUSIBLE_CONSUMER_KINDS = {
     "elementwise",
     "softmax",
     "layernorm",
+    "rmsnorm",
     "batchnorm",
     "pooling",
+    "swiglu",
 }
 
 

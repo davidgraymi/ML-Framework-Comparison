@@ -165,12 +165,23 @@ class TorchAdapter(FrameworkAdapter):
                             },
                         )
                     )
-                elif isinstance(
-                    module, (torch.nn.LayerNorm, torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)
+                elif (
+                    isinstance(
+                        module, (torch.nn.LayerNorm, torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)
+                    )
+                    or (hasattr(torch.nn, "RMSNorm") and isinstance(module, torch.nn.RMSNorm))
+                    or module.__class__.__name__ == "RMSNorm"
                 ):
                     if not isinstance(output, torch.Tensor):
                         return
-                    kind = "layernorm" if isinstance(module, torch.nn.LayerNorm) else "batchnorm"
+                    if (
+                        hasattr(torch.nn, "RMSNorm") and isinstance(module, torch.nn.RMSNorm)
+                    ) or module.__class__.__name__ == "RMSNorm":
+                        kind = "rmsnorm"
+                    elif isinstance(module, torch.nn.LayerNorm):
+                        kind = "layernorm"
+                    else:
+                        kind = "batchnorm"
                     attrs: dict[str, int | float | tuple[int, ...]] = {}
                     if hasattr(module, "weight") and module.weight is not None:
                         attrs["parameter_bytes"] = sum(
@@ -190,7 +201,7 @@ class TorchAdapter(FrameworkAdapter):
 
             return record
 
-        _TRACKED = (
+        _tracked_list = [
             torch.nn.Linear,
             torch.nn.Conv2d,
             torch.nn.Embedding,
@@ -201,19 +212,61 @@ class TorchAdapter(FrameworkAdapter):
             torch.nn.LayerNorm,
             torch.nn.BatchNorm1d,
             torch.nn.BatchNorm2d,
-        )
+        ]
+        if hasattr(torch.nn, "RMSNorm"):
+            _tracked_list.append(torch.nn.RMSNorm)
+        _TRACKED = tuple(_tracked_list)
         for name, module in model.named_modules():
-            if isinstance(module, _TRACKED):
+            if isinstance(module, _TRACKED) or module.__class__.__name__ == "RMSNorm":
                 hooks.append(
                     module.register_forward_hook(hook(name or module.__class__.__name__, module))
                 )
 
         was_training = model.training
+        orig_sdpa = getattr(torch.nn.functional, "scaled_dot_product_attention", None)
+        sdpa_counter = [0]
+        if orig_sdpa is not None:
+
+            def wrapped_sdpa(query, key, value, *args, **kwargs):
+                out = orig_sdpa(query, key, value, *args, **kwargs)
+                if isinstance(query, torch.Tensor) and isinstance(out, torch.Tensor):
+                    sdpa_counter[0] += 1
+                    q_shape = tuple(query.shape)
+                    k_shape = tuple(key.shape) if isinstance(key, torch.Tensor) else q_shape
+                    v_shape = tuple(value.shape) if isinstance(value, torch.Tensor) else q_shape
+                    if len(q_shape) == 4:
+                        _, h, l, d_h = q_shape
+                    elif len(q_shape) == 3:
+                        _, l, d = q_shape
+                        h, d_h = 1, d
+                    else:
+                        h, l, d_h = 1, 1, 1
+                    captured.append(
+                        Operation(
+                            f"scaled_dot_product_attention_{sdpa_counter[0]}",
+                            "attention",
+                            (q_shape, k_shape, v_shape),
+                            tuple(out.shape),
+                            dtype_bytes(query),
+                            {
+                                "num_heads": h,
+                                "seq_len": l,
+                                "head_dim": d_h,
+                                "include_projections": False,
+                            },
+                        )
+                    )
+                return out
+
+            torch.nn.functional.scaled_dot_product_attention = wrapped_sdpa
+
         try:
             model.eval()
             with torch.no_grad():
                 model(*example_inputs)
         finally:
+            if orig_sdpa is not None:
+                torch.nn.functional.scaled_dot_product_attention = orig_sdpa
             for registered_hook in hooks:
                 registered_hook.remove()
             model.train(was_training)
@@ -422,6 +475,25 @@ class TorchFxAdapter(TorchAdapter):
                             node.name, "layernorm", in_shapes or (out_shape,), out_shape, dtype_b
                         )
                     )
+                elif (
+                    hasattr(torch.nn, "RMSNorm") and isinstance(mod, torch.nn.RMSNorm)
+                ) or mod.__class__.__name__ == "RMSNorm":
+                    attrs = {}
+                    if hasattr(mod, "weight") and mod.weight is not None:
+                        attrs["parameter_bytes"] = sum(
+                            p.numel() * p.element_size() for p in mod.parameters(recurse=False)
+                        )
+                        attrs["parameter_id"] = id(mod.weight)
+                    captured.append(
+                        Operation(
+                            node.name,
+                            "rmsnorm",
+                            in_shapes or (out_shape,),
+                            out_shape,
+                            dtype_b,
+                            attrs,
+                        )
+                    )
                 elif isinstance(mod, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
                     captured.append(
                         Operation(
@@ -524,6 +596,44 @@ class TorchFxAdapter(TorchAdapter):
                             out_shape,
                             dtype_b,
                             {"groups": groups},
+                        )
+                    )
+                elif fn_name == "scaled_dot_product_attention" or fn == getattr(
+                    torch.nn.functional, "scaled_dot_product_attention", None
+                ):
+                    all_args = list(node.args) + list(node.kwargs.values())
+                    in_shapes = tuple(
+                        s for s in (get_shape(arg) for arg in all_args) if s is not None
+                    )
+                    q_shape = in_shapes[0] if in_shapes else out_shape
+                    if len(q_shape) == 4:
+                        _, h, l, d_h = q_shape
+                    elif len(q_shape) == 3:
+                        _, l, d = q_shape
+                        h, d_h = 1, d
+                    else:
+                        h, l, d_h = 1, 1, 1
+                    captured.append(
+                        Operation(
+                            node.name,
+                            "attention",
+                            in_shapes or (out_shape,),
+                            out_shape,
+                            dtype_b,
+                            {
+                                "num_heads": h,
+                                "seq_len": l,
+                                "head_dim": d_h,
+                                "include_projections": False,
+                            },
+                        )
+                    )
+                elif fn_name in {"rms_norm"} or fn == getattr(
+                    torch.nn.functional, "rms_norm", None
+                ):
+                    captured.append(
+                        Operation(
+                            node.name, "rmsnorm", in_shapes or (out_shape,), out_shape, dtype_b
                         )
                     )
 

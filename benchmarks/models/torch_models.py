@@ -240,19 +240,32 @@ class DeepDNN(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-class TransformerBlock(nn.Module):
-    """Transformer Encoder Block with SDPA attention."""
+from .operators import RMSNorm, SwiGLU
 
-    def __init__(self, embed_dim: int, num_heads: int, ffn_dim: int) -> None:
+
+class TransformerBlock(nn.Module):
+    """Transformer Encoder Block with SDPA attention, RMSNorm, and SwiGLU support."""
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        ffn_dim: int,
+        use_rmsnorm: bool = False,
+        use_swiglu: bool = False,
+    ) -> None:
         super().__init__()
-        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm1 = RMSNorm(embed_dim) if use_rmsnorm else nn.LayerNorm(embed_dim)
         self.attn = SDPASelfAttention(embed_dim, num_heads)
-        self.norm2 = nn.LayerNorm(embed_dim)
-        self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, ffn_dim),
-            nn.GELU(),
-            nn.Linear(ffn_dim, embed_dim),
-        )
+        self.norm2 = RMSNorm(embed_dim) if use_rmsnorm else nn.LayerNorm(embed_dim)
+        if use_swiglu:
+            self.ffn = SwiGLU(embed_dim, ffn_dim)
+        else:
+            self.ffn = nn.Sequential(
+                nn.Linear(embed_dim, ffn_dim),
+                nn.GELU(),
+                nn.Linear(ffn_dim, embed_dim),
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.norm1(x))
@@ -261,7 +274,7 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    """Transformer Encoder model."""
+    """Transformer Encoder model using hardware-accelerated fused SDPA (scaled_dot_product_attention)."""
 
     def __init__(
         self,
@@ -270,15 +283,27 @@ class Transformer(nn.Module):
         num_layers: int = 6,
         ffn_dim: int = 3072,
         num_classes: int = 10,
+        use_rmsnorm: bool = False,
+        use_swiglu: bool = False,
     ) -> None:
         super().__init__()
         self.blocks = nn.Sequential(
-            *[TransformerBlock(embed_dim, num_heads, ffn_dim) for _ in range(num_layers)]
+            *[
+                TransformerBlock(
+                    embed_dim,
+                    num_heads,
+                    ffn_dim,
+                    use_rmsnorm=use_rmsnorm,
+                    use_swiglu=use_swiglu,
+                )
+                for _ in range(num_layers)
+            ]
         )
-        self.norm = nn.LayerNorm(embed_dim)
+        self.norm = RMSNorm(embed_dim) if use_rmsnorm else nn.LayerNorm(embed_dim)
         self.head = nn.Linear(embed_dim, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Forward pass using scaled_dot_product_attention (SDPA)
         x = self.blocks(x)
         x = self.norm(x)
         return self.head(x.mean(dim=1))

@@ -15,10 +15,12 @@ OperationKind = Literal[
     "custom",
     "softmax",
     "layernorm",
+    "rmsnorm",
     "batchnorm",
     "pooling",
     "embedding",
     "attention",
+    "swiglu",
 ]
 
 

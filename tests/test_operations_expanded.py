@@ -73,6 +73,55 @@ class TestOperationsExpanded(unittest.TestCase):
         self.assertIn("layernorm", valid_kinds)
         self.assertIn("batchnorm", valid_kinds)
         self.assertIn("pooling", valid_kinds)
+        self.assertIn("rmsnorm", valid_kinds)
+        self.assertIn("swiglu", valid_kinds)
+
+    def test_rmsnorm_flops(self):
+        op = Operation("rms", "rmsnorm", ((2, 32, 128),), (2, 32, 128), dtype_bytes=4)
+        est = estimate_operation(op)
+        # 3 * numel(output) = 3 * 8192 = 24576
+        self.assertEqual(est.flops, 3 * 2 * 32 * 128)
+        self.assertEqual(est.read_bytes, 2 * 32 * 128 * 4)
+        self.assertEqual(est.write_bytes, 2 * 32 * 128 * 4)
+
+    def test_swiglu_flops(self):
+        op = Operation("swi", "swiglu", ((2, 32, 128),), (2, 32, 128), dtype_bytes=4)
+        est = estimate_operation(op)
+        # 3 * numel(output) = 24576
+        self.assertEqual(est.flops, 3 * 2 * 32 * 128)
+
+    def test_attention_projections_gating(self):
+        # 1. Monolithic attention (include_projections=True)
+        op_mono = Operation(
+            "attn_mono",
+            "attention",
+            ((2, 32, 128),),
+            (2, 32, 128),
+            dtype_bytes=4,
+            attrs={"num_heads": 4, "seq_len": 32, "head_dim": 32, "include_projections": True},
+        )
+        est_mono = estimate_operation(op_mono)
+        # proj (8388608) + attn core (1089536) = 9478144
+        self.assertEqual(est_mono.flops, 9478144)
+
+        # 2. Standalone SDPA kernel (include_projections=False)
+        op_sdpa = Operation(
+            "sdpa",
+            "attention",
+            ((2, 4, 32, 32), (2, 4, 32, 32), (2, 4, 32, 32)),
+            (2, 4, 32, 32),
+            dtype_bytes=4,
+            attrs={"num_heads": 4, "seq_len": 32, "head_dim": 32, "include_projections": False},
+        )
+        est_sdpa = estimate_operation(op_sdpa)
+        # attn core only = 1089536
+        self.assertEqual(est_sdpa.flops, 1089536)
+
+    def test_fusible_consumer_kinds_contains_rmsnorm_and_swiglu(self):
+        from neural_cost.estimate import _FUSIBLE_CONSUMER_KINDS
+
+        self.assertIn("rmsnorm", _FUSIBLE_CONSUMER_KINDS)
+        self.assertIn("swiglu", _FUSIBLE_CONSUMER_KINDS)
 
     def test_read_write_bytes_for_new_ops(self):
         # Softmax

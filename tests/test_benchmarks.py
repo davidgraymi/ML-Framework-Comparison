@@ -267,3 +267,19 @@ def test_report_diagnostics_table_formatting():
         assert "DRAM" in tbl
     finally:
         generate_report.select = orig_select
+
+
+def test_legacy_gating_default():
+    """Verify that default architectures exclude legacy recurrent models."""
+    archs = collect_data.get_benchmarked_architectures(include_legacy=False)
+    assert "RNN" not in archs
+    assert "LSTM" not in archs
+    assert "Transformer" in archs
+
+
+def test_legacy_gating_enabled():
+    """Verify that specifying include_legacy adds recurrent models."""
+    archs = collect_data.get_benchmarked_architectures(include_legacy=True)
+    assert "RNN" in archs
+    assert "LSTM" in archs
+    assert "Transformer" in archs
