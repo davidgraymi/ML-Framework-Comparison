@@ -69,6 +69,7 @@ class TorchAdapter(FrameworkAdapter):
                                     for p in module.parameters(recurse=False)
                                 ),
                                 "parameter_id": id(module.weight),
+                                "groups": module.groups,
                             },
                         )
                     )
@@ -388,6 +389,7 @@ class TorchFxAdapter(TorchAdapter):
                                         for p in mod.parameters(recurse=False)
                                     ),
                                     "parameter_id": id(mod.weight),
+                                    "groups": mod.groups,
                                 },
                             )
                         )
@@ -505,6 +507,23 @@ class TorchFxAdapter(TorchAdapter):
                     captured.append(
                         Operation(
                             node.name, "softmax", in_shapes or (out_shape,), out_shape, dtype_b
+                        )
+                    )
+                elif (
+                    fn_name in {"conv2d"}
+                    or fn in {torch.nn.functional.conv2d, getattr(torch, "conv2d", None)}
+                ) and len(in_shapes) >= 2:
+                    groups = int(
+                        node.kwargs.get("groups", node.args[6] if len(node.args) > 6 else 1)
+                    )
+                    captured.append(
+                        Operation(
+                            node.name,
+                            "conv2d",
+                            in_shapes[:2],
+                            out_shape,
+                            dtype_b,
+                            {"groups": groups},
                         )
                     )
 

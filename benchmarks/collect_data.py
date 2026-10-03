@@ -26,9 +26,21 @@ from pathlib import Path
 from statistics import mean, median, stdev
 from typing import Any
 
-# Ensure src/ is importable when run from the repo root.
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Ensure repo root and src/ are importable
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from benchmarks.models import (
+    SCALE_BATCH_SIZES,
+    SCALE_TIERS,
+    STANDARD_BATCH_SIZES,
+    get_available_models,
+    get_batch_sizes,
+    get_model,
+)
 from neural_cost import (
     HardwareSpec,
     Measurement,
@@ -50,25 +62,24 @@ from neural_cost.hardware_detect import detect_hardware
 # Config
 # ---------------------------------------------------------------------------
 
-EMBED_DIM  = 128
-NUM_HEADS  = 4
+EMBED_DIM = 128
+NUM_HEADS = 4
 NUM_CLASSES = 10
-IMG_SIZE   = 32
+IMG_SIZE = 32
 
-BATCH_SIZES = [1, 8, 32, 128]
-
-# For --quick flag
-QUICK_BATCH_SIZES = [8, 64]
+BATCH_SIZES = [1, 4, 16, 64]
+QUICK_BATCH_SIZES = [4, 16]
 
 
 # ---------------------------------------------------------------------------
 # Result record
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class BenchRecord:
     framework: str
-    variant: str          # "baseline" or "optimised"
+    variant: str  # "baseline" or "optimised"
     architecture: str
     batch: int
     flops: int
@@ -84,6 +95,7 @@ class BenchRecord:
     achieved_gflops: float
     achieved_gbw: float
     bottleneck: str
+    scale: str = "standard"
     fused_efficiency: float | None = None
     fused_lower_bound_ms: float | None = None
     traffic_reduction_pct: float | None = None
@@ -107,6 +119,7 @@ def _make_bench_record(
     prof: Any,
     gap: Any,
     st: dict[str, float],
+    scale: str = "standard",
     peak_alloc: int | None = None,
     peak_res: int | None = None,
 ) -> BenchRecord:
@@ -116,7 +129,9 @@ def _make_bench_record(
         else None
     )
     traffic_red_pct = None
-    if getattr(gap, "fused_lower_bound_seconds", None) is not None and getattr(prof, "operations", None):
+    if getattr(gap, "fused_lower_bound_seconds", None) is not None and getattr(
+        prof, "operations", None
+    ):
         fused_est = estimate_fused_operations(prof.operations)
         traffic_red_pct = round(fused_est.traffic_reduction_ratio * 100, 1)
 
@@ -162,6 +177,7 @@ def _make_bench_record(
         achieved_gflops=gap.achieved_flops / 1e9,
         achieved_gbw=gap.achieved_bandwidth / 1e9,
         bottleneck=gap.bottleneck,
+        scale=scale,
         fused_efficiency=getattr(gap, "fused_efficiency", None),
         fused_lower_bound_ms=fused_lb_ms,
         traffic_reduction_pct=traffic_red_pct,
@@ -182,14 +198,17 @@ def _make_bench_record(
 # Timing helpers
 # ---------------------------------------------------------------------------
 
+
 def _jax_block(
     fn: Callable, args: tuple, warmup: int, repeats: int
 ) -> tuple[list[float], int | None, int | None]:
     import jax
+
     def wait(v: Any) -> None:
         for leaf in jax.tree.leaves(v):
             if hasattr(leaf, "block_until_ready"):
                 leaf.block_until_ready()
+
     for _ in range(warmup):
         wait(fn(*args))
     samples = []
@@ -285,10 +304,13 @@ def _tf_block(
     fn: Callable, args: tuple, warmup: int, repeats: int
 ) -> tuple[list[float], int | None, int | None]:
     import tensorflow as tf
+
     async_wait = getattr(tf.experimental, "async_wait", None)
+
     def wait():
         if async_wait:
             async_wait()
+
     for _ in range(warmup):
         fn(*args)
         wait()
@@ -327,9 +349,9 @@ def _stats(samples: list[float]) -> dict[str, float]:
     s = sorted(samples)
     n = len(s)
     med = median(s)
-    mn  = mean(s)
-    sd  = stdev(s) if n > 1 else 0.0
-    cv  = 100 * sd / mn if mn > 0 else 0.0
+    mn = mean(s)
+    sd = stdev(s) if n > 1 else 0.0
+    cv = 100 * sd / mn if mn > 0 else 0.0
     p95 = s[min(int(0.95 * n), n - 1)]
     return dict(median=med, mean=mn, stddev=sd, cv=cv, p95=p95)
 
@@ -338,74 +360,96 @@ def _stats(samples: list[float]) -> dict[str, float]:
 # PyTorch model builders  (return model, call_fn, inputs_for_adapter)
 # ---------------------------------------------------------------------------
 
+
 def _torch_ff_dnn(batch: int):
     import torch
+
     model = torch.nn.Sequential(
-        torch.nn.Linear(784, EMBED_DIM), torch.nn.ReLU(),
+        torch.nn.Linear(784, EMBED_DIM),
+        torch.nn.ReLU(),
         torch.nn.LayerNorm(EMBED_DIM),
-        torch.nn.Linear(EMBED_DIM, EMBED_DIM), torch.nn.ReLU(),
+        torch.nn.Linear(EMBED_DIM, EMBED_DIM),
+        torch.nn.ReLU(),
         torch.nn.LayerNorm(EMBED_DIM),
         torch.nn.Linear(EMBED_DIM, NUM_CLASSES),
     ).eval()
     x = torch.randn(batch, 784)
     return model, (x,)
 
+
 def _torch_cnn(batch: int):
     import torch
+
     model = torch.nn.Sequential(
-        torch.nn.Conv2d(3, EMBED_DIM // 2, 3, padding=1), torch.nn.ReLU(),
-        torch.nn.BatchNorm2d(EMBED_DIM // 2), torch.nn.MaxPool2d(2),
-        torch.nn.Conv2d(EMBED_DIM // 2, EMBED_DIM, 3, padding=1), torch.nn.ReLU(),
-        torch.nn.BatchNorm2d(EMBED_DIM), torch.nn.AdaptiveAvgPool2d(1),
-        torch.nn.Flatten(), torch.nn.Linear(EMBED_DIM, NUM_CLASSES),
+        torch.nn.Conv2d(3, EMBED_DIM // 2, 3, padding=1),
+        torch.nn.ReLU(),
+        torch.nn.BatchNorm2d(EMBED_DIM // 2),
+        torch.nn.MaxPool2d(2),
+        torch.nn.Conv2d(EMBED_DIM // 2, EMBED_DIM, 3, padding=1),
+        torch.nn.ReLU(),
+        torch.nn.BatchNorm2d(EMBED_DIM),
+        torch.nn.AdaptiveAvgPool2d(1),
+        torch.nn.Flatten(),
+        torch.nn.Linear(EMBED_DIM, NUM_CLASSES),
     ).eval()
     x = torch.randn(batch, 3, IMG_SIZE, IMG_SIZE)
     return model, (x,)
 
+
 def _torch_rnn(batch: int):
     import torch
+
     class M(torch.nn.Module):
         def __init__(self):
             super().__init__()
             self.rnn = torch.nn.RNN(EMBED_DIM, EMBED_DIM, num_layers=2, batch_first=True)
-            self.fc  = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+            self.fc = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+
         def forward(self, x):
             out, _ = self.rnn(x)
             return self.fc(out[:, -1])
+
     m = M().eval()
     x = torch.randn(batch, 32, EMBED_DIM)
     return m, (x,)
 
+
 def _torch_lstm(batch: int):
     import torch
+
     class M(torch.nn.Module):
         def __init__(self):
             super().__init__()
             self.lstm = torch.nn.LSTM(EMBED_DIM, EMBED_DIM, num_layers=2, batch_first=True)
-            self.fc   = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+            self.fc = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+
         def forward(self, x):
             out, _ = self.lstm(x)
             return self.fc(out[:, -1])
+
     m = M().eval()
     x = torch.randn(batch, 32, EMBED_DIM)
     return m, (x,)
 
+
 def _torch_transformer(batch: int):
     import torch
+
     class M(torch.nn.Module):
         def __init__(self):
             super().__init__()
-            self.attn1  = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
+            self.attn1 = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
             self.norm1a = torch.nn.LayerNorm(EMBED_DIM)
-            self.ff1    = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
-            self.ff1b   = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
+            self.ff1 = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
+            self.ff1b = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
             self.norm1b = torch.nn.LayerNorm(EMBED_DIM)
-            self.attn2  = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
+            self.attn2 = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
             self.norm2a = torch.nn.LayerNorm(EMBED_DIM)
-            self.ff2    = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
-            self.ff2b   = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
+            self.ff2 = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
+            self.ff2b = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
             self.norm2b = torch.nn.LayerNorm(EMBED_DIM)
-            self.head   = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+            self.head = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+
         def forward(self, x):
             xt = x.permute(1, 0, 2)
             a1, _ = self.attn1(xt, xt, xt)
@@ -415,6 +459,7 @@ def _torch_transformer(batch: int):
             xt = self.norm2a(xt + a2)
             xt = self.norm2b(xt + self.ff2b(torch.relu(self.ff2(xt))))
             return self.head(xt.mean(0))
+
     m = M().eval()
     x = torch.randn(batch, 32, EMBED_DIM)
     return m, (x,)
@@ -433,47 +478,72 @@ TORCH_BUILDERS = {
 # JAX model builders
 # ---------------------------------------------------------------------------
 
+
 def _jax_ff_dnn(batch: int):
     import jax.numpy as jnp
+
     w1 = jnp.ones((784, EMBED_DIM))
     w2 = jnp.ones((EMBED_DIM, EMBED_DIM))
     w3 = jnp.ones((EMBED_DIM, NUM_CLASSES))
+
     def model(x, _w1=w1, _w2=w2, _w3=w3):
         return jnp.tanh(jnp.tanh(x @ _w1) @ _w2) @ _w3
+
     return model, (jnp.ones((batch, 784)), w1, w2, w3)
+
 
 def _jax_cnn(batch: int):
     import jax.lax as lax
     import jax.numpy as jnp
-    k1  = jnp.ones((EMBED_DIM // 2, 3, 3, 3))
-    k2  = jnp.ones((EMBED_DIM, EMBED_DIM // 2, 3, 3))
+
+    k1 = jnp.ones((EMBED_DIM // 2, 3, 3, 3))
+    k2 = jnp.ones((EMBED_DIM, EMBED_DIM // 2, 3, 3))
     wfc = jnp.ones((EMBED_DIM, NUM_CLASSES))
+
     def model(x, _k1=k1, _k2=k2, _wfc=wfc):
-        y = jnp.tanh(lax.conv_general_dilated(x, _k1, (1,1), "SAME", dimension_numbers=("NCHW","OIHW","NCHW")))
-        y = jnp.tanh(lax.conv_general_dilated(y, _k2, (2,2), "SAME", dimension_numbers=("NCHW","OIHW","NCHW")))
+        y = jnp.tanh(
+            lax.conv_general_dilated(
+                x, _k1, (1, 1), "SAME", dimension_numbers=("NCHW", "OIHW", "NCHW")
+            )
+        )
+        y = jnp.tanh(
+            lax.conv_general_dilated(
+                y, _k2, (2, 2), "SAME", dimension_numbers=("NCHW", "OIHW", "NCHW")
+            )
+        )
         return y.mean(axis=(2, 3)) @ _wfc
+
     return model, (jnp.ones((batch, 3, IMG_SIZE, IMG_SIZE)), k1, k2, wfc)
+
 
 def _jax_rnn(batch: int):
     import jax.numpy as jnp
+
     T = 32
     wih = jnp.ones((EMBED_DIM, EMBED_DIM))
     whh = jnp.ones((EMBED_DIM, EMBED_DIM))
     wfc = jnp.ones((EMBED_DIM, NUM_CLASSES))
+
     def model(x, _wih=wih, _whh=whh, _wfc=wfc):
         h = jnp.zeros((x.shape[0], EMBED_DIM))
         for t in range(T):
             h = jnp.tanh(x[:, t] @ _wih + h @ _whh)
         return h @ _wfc
+
     return model, (jnp.ones((batch, T, EMBED_DIM)), wih, whh, wfc)
+
 
 def _jax_lstm(batch: int):
     import jax.numpy as jnp
+
     T, G = 32, 4
     wih = jnp.ones((EMBED_DIM, G * EMBED_DIM))
     whh = jnp.ones((EMBED_DIM, G * EMBED_DIM))
     wfc = jnp.ones((EMBED_DIM, NUM_CLASSES))
-    def sigmoid(x): return 1.0 / (1.0 + jnp.exp(-x))
+
+    def sigmoid(x):
+        return 1.0 / (1.0 + jnp.exp(-x))
+
     def model(x, _wih=wih, _whh=whh, _wfc=wfc):
         h = jnp.zeros((x.shape[0], EMBED_DIM))
         c = jnp.zeros((x.shape[0], EMBED_DIM))
@@ -483,37 +553,43 @@ def _jax_lstm(batch: int):
             c = sigmoid(f) * c + sigmoid(i) * jnp.tanh(g)
             h = sigmoid(o) * jnp.tanh(c)
         return h @ _wfc
+
     return model, (jnp.ones((batch, T, EMBED_DIM)), wih, whh, wfc)
+
 
 def _jax_transformer(batch: int):
     import jax.numpy as jnp
-    T       = 32
-    hd      = EMBED_DIM // NUM_HEADS
-    wq  = jnp.ones((EMBED_DIM, EMBED_DIM))
-    wk  = jnp.ones((EMBED_DIM, EMBED_DIM))
-    wv  = jnp.ones((EMBED_DIM, EMBED_DIM))
-    wo  = jnp.ones((EMBED_DIM, EMBED_DIM))
+
+    T = 32
+    hd = EMBED_DIM // NUM_HEADS
+    wq = jnp.ones((EMBED_DIM, EMBED_DIM))
+    wk = jnp.ones((EMBED_DIM, EMBED_DIM))
+    wv = jnp.ones((EMBED_DIM, EMBED_DIM))
+    wo = jnp.ones((EMBED_DIM, EMBED_DIM))
     wf1 = jnp.ones((EMBED_DIM, EMBED_DIM * 4))
     wf2 = jnp.ones((EMBED_DIM * 4, EMBED_DIM))
     wfc = jnp.ones((EMBED_DIM, NUM_CLASSES))
-    scale = hd ** -0.5
+    scale = hd**-0.5
+
     def attn(x, wq_, wk_, wv_, wo_):
         q, k, v = x @ wq_, x @ wk_, x @ wv_
         s = (q * scale) @ k.transpose(0, 2, 1)
         w = jnp.exp(s) / jnp.exp(s).sum(-1, keepdims=True)
         return (w @ v) @ wo_
+
     def model(x, _wq=wq, _wk=wk, _wv=wv, _wo=wo, _wf1=wf1, _wf2=wf2, _wfc=wfc):
         x = x + attn(x, _wq, _wk, _wv, _wo)
         x = x + jnp.tanh(x @ _wf1) @ _wf2
         return x.mean(1) @ _wfc
+
     return model, (jnp.ones((batch, T, EMBED_DIM)), wq, wk, wv, wo, wf1, wf2, wfc)
 
 
 JAX_BUILDERS = {
-    "FF DNN":      _jax_ff_dnn,
-    "CNN":         _jax_cnn,
-    "RNN":         _jax_rnn,
-    "LSTM":        _jax_lstm,
+    "FF DNN": _jax_ff_dnn,
+    "CNN": _jax_cnn,
+    "RNN": _jax_rnn,
+    "LSTM": _jax_lstm,
     "Transformer": _jax_transformer,
 }
 
@@ -522,91 +598,121 @@ JAX_BUILDERS = {
 # TF model builders
 # ---------------------------------------------------------------------------
 
+
 def _tf_ff_dnn(batch: int):
     import tensorflow as tf
-    m = tf.keras.Sequential([
-        tf.keras.layers.Dense(EMBED_DIM, activation="relu"),
-        tf.keras.layers.LayerNormalization(),
-        tf.keras.layers.Dense(EMBED_DIM, activation="relu"),
-        tf.keras.layers.LayerNormalization(),
-        tf.keras.layers.Dense(NUM_CLASSES),
-    ])
+
+    m = tf.keras.Sequential(
+        [
+            tf.keras.layers.Dense(EMBED_DIM, activation="relu"),
+            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.Dense(EMBED_DIM, activation="relu"),
+            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.Dense(NUM_CLASSES),
+        ]
+    )
     x = tf.ones((batch, 784))
     m(x)
     return m, (x,)
 
+
 def _tf_cnn(batch: int):
     import tensorflow as tf
-    m = tf.keras.Sequential([
-        tf.keras.layers.Conv2D(EMBED_DIM // 2, 3, padding="same", activation="relu"),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.MaxPooling2D(2),
-        tf.keras.layers.Conv2D(EMBED_DIM, 3, padding="same", activation="relu"),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.GlobalAveragePooling2D(),
-        tf.keras.layers.Dense(NUM_CLASSES),
-    ])
+
+    m = tf.keras.Sequential(
+        [
+            tf.keras.layers.Conv2D(EMBED_DIM // 2, 3, padding="same", activation="relu"),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.MaxPooling2D(2),
+            tf.keras.layers.Conv2D(EMBED_DIM, 3, padding="same", activation="relu"),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.GlobalAveragePooling2D(),
+            tf.keras.layers.Dense(NUM_CLASSES),
+        ]
+    )
     x = tf.ones((batch, IMG_SIZE, IMG_SIZE, 3))
     m(x)
     return m, (x,)
 
+
 def _tf_rnn(batch: int):
     import tensorflow as tf
+
     inp = tf.keras.layers.Input(shape=(32, EMBED_DIM))
-    x   = tf.keras.layers.GRU(EMBED_DIM, return_sequences=True)(inp)
-    x   = tf.keras.layers.GRU(EMBED_DIM)(x)
+    x = tf.keras.layers.GRU(EMBED_DIM, return_sequences=True)(inp)
+    x = tf.keras.layers.GRU(EMBED_DIM)(x)
     out = tf.keras.layers.Dense(NUM_CLASSES)(x)
-    m   = tf.keras.Model(inp, out)
-    xi  = tf.ones((batch, 32, EMBED_DIM))
+    m = tf.keras.Model(inp, out)
+    xi = tf.ones((batch, 32, EMBED_DIM))
     m(xi)
     return m, (xi,)
+
 
 def _tf_lstm(batch: int):
     import tensorflow as tf
+
     inp = tf.keras.layers.Input(shape=(32, EMBED_DIM))
-    x   = tf.keras.layers.LSTM(EMBED_DIM, return_sequences=True)(inp)
-    x   = tf.keras.layers.LSTM(EMBED_DIM)(x)
+    x = tf.keras.layers.LSTM(EMBED_DIM, return_sequences=True)(inp)
+    x = tf.keras.layers.LSTM(EMBED_DIM)(x)
     out = tf.keras.layers.Dense(NUM_CLASSES)(x)
-    m   = tf.keras.Model(inp, out)
-    xi  = tf.ones((batch, 32, EMBED_DIM))
+    m = tf.keras.Model(inp, out)
+    xi = tf.ones((batch, 32, EMBED_DIM))
     m(xi)
     return m, (xi,)
 
+
 def _tf_transformer(batch: int):
     import tensorflow as tf
+
     inp = tf.keras.layers.Input(shape=(32, EMBED_DIM))
-    x   = tf.keras.layers.MultiHeadAttention(num_heads=NUM_HEADS, key_dim=EMBED_DIM // NUM_HEADS)(inp, inp)
-    x   = tf.keras.layers.LayerNormalization()(inp + x)
-    ff  = tf.keras.layers.Dense(EMBED_DIM * 4, activation="relu")(x)
-    ff  = tf.keras.layers.Dense(EMBED_DIM)(ff)
-    x   = tf.keras.layers.LayerNormalization()(x + ff)
-    x2  = tf.keras.layers.MultiHeadAttention(num_heads=NUM_HEADS, key_dim=EMBED_DIM // NUM_HEADS)(x, x)
-    x2  = tf.keras.layers.LayerNormalization()(x + x2)
+    x = tf.keras.layers.MultiHeadAttention(num_heads=NUM_HEADS, key_dim=EMBED_DIM // NUM_HEADS)(
+        inp, inp
+    )
+    x = tf.keras.layers.LayerNormalization()(inp + x)
+    ff = tf.keras.layers.Dense(EMBED_DIM * 4, activation="relu")(x)
+    ff = tf.keras.layers.Dense(EMBED_DIM)(ff)
+    x = tf.keras.layers.LayerNormalization()(x + ff)
+    x2 = tf.keras.layers.MultiHeadAttention(num_heads=NUM_HEADS, key_dim=EMBED_DIM // NUM_HEADS)(
+        x, x
+    )
+    x2 = tf.keras.layers.LayerNormalization()(x + x2)
     ff2 = tf.keras.layers.Dense(EMBED_DIM * 4, activation="relu")(x2)
     ff2 = tf.keras.layers.Dense(EMBED_DIM)(ff2)
-    x2  = tf.keras.layers.LayerNormalization()(x2 + ff2)
-    p   = tf.keras.layers.GlobalAveragePooling1D()(x2)
+    x2 = tf.keras.layers.LayerNormalization()(x2 + ff2)
+    p = tf.keras.layers.GlobalAveragePooling1D()(x2)
     out = tf.keras.layers.Dense(NUM_CLASSES)(p)
-    m   = tf.keras.Model(inp, out)
-    xi  = tf.ones((batch, 32, EMBED_DIM))
+    m = tf.keras.Model(inp, out)
+    xi = tf.ones((batch, 32, EMBED_DIM))
     m(xi)
     return m, (xi,)
 
 
 TF_BUILDERS = {
-    "FF DNN":      _tf_ff_dnn,
-    "CNN":         _tf_cnn,
-    "RNN":         _tf_rnn,
-    "LSTM":        _tf_lstm,
+    "FF DNN": _tf_ff_dnn,
+    "CNN": _tf_cnn,
+    "RNN": _tf_rnn,
+    "LSTM": _tf_lstm,
     "Transformer": _tf_transformer,
 }
 
-ARCHITECTURES = ["FF DNN", "CNN", "RNN", "LSTM", "Transformer"]
+DEFAULT_ARCHITECTURES: list[str] = ["FF DNN", "ConvNeXt", "ViT", "Transformer"]
+LEGACY_ARCHITECTURES: list[str] = ["CNN", "RNN", "LSTM"]
+
+
+def get_benchmarked_architectures(include_legacy: bool = False) -> list[str]:
+    """Return active benchmark architectures, gating legacy models."""
+    if include_legacy:
+        return list(DEFAULT_ARCHITECTURES + LEGACY_ARCHITECTURES)
+    return list(DEFAULT_ARCHITECTURES)
+
+
+ARCHITECTURES = get_benchmarked_architectures(include_legacy=False)
 
 
 # ---------------------------------------------------------------------------
 # Per-framework evaluation
 # ---------------------------------------------------------------------------
+
 
 def eval_torch(
     hardware: HardwareSpec,
@@ -614,6 +720,8 @@ def eval_torch(
     warmup: int,
     repeats: int,
     use_fx: bool = True,
+    scale: str = "standard",
+    architectures: list[str] | None = None,
 ) -> list[BenchRecord]:
     import torch
 
@@ -627,14 +735,20 @@ def eval_torch(
     else:
         adapter = TorchAdapter()
 
+    active_archs = architectures if architectures is not None else ARCHITECTURES
     records: list[BenchRecord] = []
-    for arch in ARCHITECTURES:
+    for arch in active_archs:
         for batch in batches:
-            model, inputs = TORCH_BUILDERS[arch](batch)
+            try:
+                model, inputs = get_model(arch, framework="torch", scale=scale, batch=batch)
+            except Exception as exc:
+                print(f"  PyTorch get_model {arch} scale={scale}: {exc}")
+                continue
             # Static profile
             try:
                 prof = profile_model(model, inputs, adapter)
-            except Exception:
+            except Exception as exc:
+                print(f"  PyTorch profile {arch} B={batch}: {exc}")
                 continue
             cost = prof.cost
             # Baseline
@@ -656,7 +770,16 @@ def eval_torch(
                 )
                 records.append(
                     _make_bench_record(
-                        "PyTorch", "baseline", arch, batch, prof, gap, st, peak_alloc, peak_res
+                        "PyTorch",
+                        "baseline",
+                        arch,
+                        batch,
+                        prof,
+                        gap,
+                        st,
+                        scale=scale,
+                        peak_alloc=peak_alloc,
+                        peak_res=peak_res,
                     )
                 )
             except Exception as exc:
@@ -684,7 +807,16 @@ def eval_torch(
                 )
                 records.append(
                     _make_bench_record(
-                        "PyTorch", "compiled", arch, batch, prof, gap, st, peak_alloc, peak_res
+                        "PyTorch",
+                        "compiled",
+                        arch,
+                        batch,
+                        prof,
+                        gap,
+                        st,
+                        scale=scale,
+                        peak_alloc=peak_alloc,
+                        peak_res=peak_res,
                     )
                 )
             except Exception as exc:
@@ -692,16 +824,30 @@ def eval_torch(
     return records
 
 
-def eval_jax(hardware: HardwareSpec, batches: list[int], warmup: int, repeats: int) -> list[BenchRecord]:
+def eval_jax(
+    hardware: HardwareSpec,
+    batches: list[int],
+    warmup: int,
+    repeats: int,
+    scale: str = "standard",
+    architectures: list[str] | None = None,
+) -> list[BenchRecord]:
     import jax
+
     adapter = JaxAdapter()
+    active_archs = architectures if architectures is not None else ARCHITECTURES
     records: list[BenchRecord] = []
-    for arch in ARCHITECTURES:
+    for arch in active_archs:
         for batch in batches:
-            model, inputs = JAX_BUILDERS[arch](batch)
+            try:
+                model, inputs = get_model(arch, framework="jax", scale=scale, batch=batch)
+            except Exception as exc:
+                print(f"  JAX get_model {arch} scale={scale}: {exc}")
+                continue
             try:
                 prof = profile_model(model, inputs, adapter)
-            except Exception:
+            except Exception as exc:
+                print(f"  JAX profile {arch} B={batch}: {exc}")
                 continue
             cost = prof.cost
             # Baseline (eager)
@@ -723,7 +869,16 @@ def eval_jax(hardware: HardwareSpec, batches: list[int], warmup: int, repeats: i
                 )
                 records.append(
                     _make_bench_record(
-                        "JAX", "baseline", arch, batch, prof, gap, st, peak_alloc, peak_res
+                        "JAX",
+                        "baseline",
+                        arch,
+                        batch,
+                        prof,
+                        gap,
+                        st,
+                        scale=scale,
+                        peak_alloc=peak_alloc,
+                        peak_res=peak_res,
                     )
                 )
             except Exception as exc:
@@ -731,8 +886,11 @@ def eval_jax(hardware: HardwareSpec, batches: list[int], warmup: int, repeats: i
             # Optimised: jax.jit
             try:
                 jit_model = jax.jit(model)
-                # Trigger compilation
-                wait = lambda v: [leaf.block_until_ready() for leaf in jax.tree.leaves(v) if hasattr(leaf, "block_until_ready")]
+                wait = lambda v: [
+                    leaf.block_until_ready()
+                    for leaf in jax.tree.leaves(v)
+                    if hasattr(leaf, "block_until_ready")
+                ]
                 wait(jit_model(*inputs))
                 samp, peak_alloc, peak_res = _jax_block(jit_model, inputs, warmup, repeats)
                 st = _stats(samp)
@@ -751,21 +909,39 @@ def eval_jax(hardware: HardwareSpec, batches: list[int], warmup: int, repeats: i
                 )
                 records.append(
                     _make_bench_record(
-                        "JAX", "jit", arch, batch, prof, gap, st, peak_alloc, peak_res
+                        "JAX",
+                        "jit",
+                        arch,
+                        batch,
+                        prof,
+                        gap,
+                        st,
+                        scale=scale,
+                        peak_alloc=peak_alloc,
+                        peak_res=peak_res,
                     )
                 )
-            except Exception as exc:
-                print(f"  JAX jit {arch} B={batch}: {exc}")
             except Exception as exc:
                 print(f"  JAX jit {arch} B={batch}: {exc}")
     return records
 
 
-def eval_tensorflow(hardware: HardwareSpec, batches: list[int], warmup: int, repeats: int) -> list[BenchRecord]:
+def eval_tensorflow(
+    hardware: HardwareSpec,
+    batches: list[int],
+    warmup: int,
+    repeats: int,
+    scale: str = "standard",
+    architectures: list[str] | None = None,
+) -> list[BenchRecord]:
     import tensorflow as tf
+
     adapter = TensorFlowAdapter()
+    active_archs = architectures if architectures is not None else ARCHITECTURES
     records: list[BenchRecord] = []
-    for arch in ARCHITECTURES:
+    for arch in active_archs:
+        if arch not in TF_BUILDERS:
+            continue
         for batch in batches:
             model, inputs = TF_BUILDERS[arch](batch)
             try:
@@ -793,7 +969,16 @@ def eval_tensorflow(hardware: HardwareSpec, batches: list[int], warmup: int, rep
                 )
                 records.append(
                     _make_bench_record(
-                        "TensorFlow", "baseline", arch, batch, prof, gap, st, peak_alloc, peak_res
+                        "TensorFlow",
+                        "baseline",
+                        arch,
+                        batch,
+                        prof,
+                        gap,
+                        st,
+                        scale=scale,
+                        peak_alloc=peak_alloc,
+                        peak_res=peak_res,
                     )
                 )
             except Exception as exc:
@@ -820,7 +1005,16 @@ def eval_tensorflow(hardware: HardwareSpec, batches: list[int], warmup: int, rep
                 )
                 records.append(
                     _make_bench_record(
-                        "TensorFlow", "tf.function", arch, batch, prof, gap, st, peak_alloc, peak_res
+                        "TensorFlow",
+                        "tf.function",
+                        arch,
+                        batch,
+                        prof,
+                        gap,
+                        st,
+                        scale=scale,
+                        peak_alloc=peak_alloc,
+                        peak_res=peak_res,
                     )
                 )
             except Exception as exc:
@@ -833,25 +1027,48 @@ def eval_tensorflow(hardware: HardwareSpec, batches: list[int], warmup: int, rep
 # ---------------------------------------------------------------------------
 
 RUNNERS = {
-    "torch":       ("PyTorch",     eval_torch),
-    "jax":         ("JAX",         eval_jax),
-    "tensorflow":  ("TensorFlow",  eval_tensorflow),
+    "torch": ("PyTorch", eval_torch),
+    "jax": ("JAX", eval_jax),
+    "tensorflow": ("TensorFlow", eval_tensorflow),
 }
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """Build CLI argument parser for collect_data."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--quick", action="store_true", help="Fewer batch sizes and repeats for fast iteration")
-    parser.add_argument("--warmup",  type=int, default=15)
+    parser.add_argument(
+        "--scale",
+        choices=["micro", "standard", "production"],
+        default="standard",
+        help="Model scale tier (default: standard)",
+    )
+    parser.add_argument(
+        "--include-legacy",
+        action="store_true",
+        default=False,
+        help="Include legacy recurrent architectures (RNN, LSTM)",
+    )
+    parser.add_argument(
+        "--quick", action="store_true", help="Fewer batch sizes and repeats for fast iteration"
+    )
+    parser.add_argument("--warmup", type=int, default=15)
     parser.add_argument("--repeats", type=int, default=40)
-    parser.add_argument("--peak-flops",       type=float, default=None)
+    parser.add_argument("--peak-flops", type=float, default=None)
     parser.add_argument("--memory-bandwidth", type=float, default=None)
-    parser.add_argument("--no-fx", action="store_true", help="Disable PyTorch FX graph tracing fallback")
+    parser.add_argument(
+        "--no-fx", action="store_true", help="Disable PyTorch FX graph tracing fallback"
+    )
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
 
-    warmup  = 5  if args.quick else args.warmup
+    warmup = 5 if args.quick else args.warmup
     repeats = 15 if args.quick else args.repeats
-    batches = QUICK_BATCH_SIZES if args.quick else BATCH_SIZES
+    batches = get_batch_sizes(scale=args.scale, quick=args.quick)
+    active_archs = get_benchmarked_architectures(include_legacy=args.include_legacy)
 
     print("Detecting hardware…", flush=True)
     hardware, detection = detect_hardware()
@@ -878,8 +1095,10 @@ def main() -> None:
         "source": detection.source,
         "measured_bw_gb_s": detection.measured_bandwidth_gb_s,
     }
-    print(f"  {hardware.name}  {hardware.peak_flops/1e12:.2f} TFLOP/s  {hardware.memory_bandwidth/1e9:.0f} GB/s")
-    print(f"  Batches={batches}  warmup={warmup}  repeats={repeats}\n")
+    print(
+        f"  {hardware.name}  {hardware.peak_flops / 1e12:.2f} TFLOP/s  {hardware.memory_bandwidth / 1e9:.0f} GB/s"
+    )
+    print(f"  Scale={args.scale}  Batches={batches}  warmup={warmup}  repeats={repeats}\n")
 
     all_records: list[BenchRecord] = []
     for pkg, (label, runner) in RUNNERS.items():
@@ -888,9 +1107,24 @@ def main() -> None:
             continue
         print(f"── {label} ─────────────────────────────────")
         if pkg == "torch":
-            recs = runner(hardware, batches, warmup, repeats, use_fx=not args.no_fx)
+            recs = runner(
+                hardware,
+                batches,
+                warmup,
+                repeats,
+                use_fx=not args.no_fx,
+                scale=args.scale,
+                architectures=active_archs,
+            )
         else:
-            recs = runner(hardware, batches, warmup, repeats)
+            recs = runner(
+                hardware,
+                batches,
+                warmup,
+                repeats,
+                scale=args.scale,
+                architectures=active_archs,
+            )
         all_records.extend(recs)
         for r in recs:
             extra = []

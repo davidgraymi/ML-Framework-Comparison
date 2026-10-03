@@ -54,11 +54,11 @@ class JaxAdapter(FrameworkAdapter):
                     and len(input_shapes[1]) == 4
                 ):
                     attrs = {}
+                    if hasattr(equation, "params") and "feature_group_count" in equation.params:
+                        attrs["groups"] = int(equation.params["feature_group_count"])
                     if id(equation.invars[1]) in parameters:
-                        attrs = {
-                            "parameter_bytes": numel(input_shapes[1]) * dtype_bytes,
-                            "parameter_id": id(equation.invars[1]),
-                        }
+                        attrs["parameter_bytes"] = numel(input_shapes[1]) * dtype_bytes
+                        attrs["parameter_id"] = id(equation.invars[1])
                     operations.append(
                         Operation(
                             f"conv_{index}",

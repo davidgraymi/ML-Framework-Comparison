@@ -32,3 +32,22 @@ class FrameworkAdapter(ABC):
         from ..profiler import benchmark
 
         return benchmark(function, *args, warmup=warmup, repeats=repeats, **kwargs)
+
+    def profile(
+        self,
+        model: Any,
+        example_inputs: Sequence[Any],
+        *,
+        training: bool = False,
+        optimizer_state_multiplier: float = 0.0,
+    ) -> Any:
+        """Convenience method to profile a model using this adapter."""
+        from ..model import profile_model
+
+        return profile_model(
+            model,
+            example_inputs,
+            self,
+            training=training,
+            optimizer_state_multiplier=optimizer_state_multiplier,
+        )

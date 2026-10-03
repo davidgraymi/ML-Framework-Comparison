@@ -33,6 +33,45 @@ class CostEstimate:
         )
 
 
+def estimate_conv2d(
+    data: tuple[int, ...] | Operation,
+    kernel: tuple[int, ...] | None = None,
+    output: tuple[int, ...] | None = None,
+    groups: int = 1,
+) -> int:
+    """Calculate FLOPs for 2D convolution with grouped and depthwise support.
+
+    Accepts either an Operation instance or explicit (data, kernel, output, groups) shapes.
+    Enforces the channel invariant: data[1] == kernel[1] * groups.
+    """
+    if isinstance(data, Operation):
+        op = data
+        if len(op.inputs) < 2:
+            raise ValueError("conv2d requires input and kernel shapes")
+        data_shape, kernel_shape = op.inputs[:2]
+        output_shape = op.output
+        groups_val = int(op.attrs.get("groups", groups))
+    else:
+        if kernel is None or output is None:
+            raise ValueError("explicit shapes require data, kernel, and output")
+        data_shape = data
+        kernel_shape = kernel
+        output_shape = output
+        groups_val = groups
+
+    if len(data_shape) != 4 or len(kernel_shape) != 4 or len(output_shape) != 4:
+        raise ValueError("conv2d expects NCHW input, OIHW kernel, and NCHW output")
+    if groups_val <= 0:
+        raise ValueError("groups must be a positive integer")
+
+    if data_shape[1] != kernel_shape[1] * groups_val or output_shape[1] != kernel_shape[0]:
+        raise ValueError("conv2d channel dimensions do not match")
+
+    assert data_shape[1] == kernel_shape[1] * groups_val
+
+    return 2 * numel(output_shape) * kernel_shape[1] * kernel_shape[2] * kernel_shape[3]
+
+
 def estimate_operation(operation: Operation) -> CostEstimate:
     """Estimate FLOPs and compulsory tensor I/O for one operation.
 
@@ -54,14 +93,7 @@ def estimate_operation(operation: Operation) -> CostEstimate:
             raise ValueError("matrix inner dimensions do not match")
         flops = 2 * prod(left[:-1]) * right[0] * right[1]
     elif kind == "conv2d":
-        if len(operation.inputs) < 2:
-            raise ValueError("conv2d requires input and kernel shapes")
-        data, kernel = operation.inputs[:2]
-        if len(data) != 4 or len(kernel) != 4 or len(operation.output) != 4:
-            raise ValueError("conv2d expects NCHW input, OIHW kernel, and NCHW output")
-        if data[1] != kernel[1] or operation.output[1] != kernel[0]:
-            raise ValueError("conv2d channel dimensions do not match")
-        flops = 2 * numel(operation.output) * kernel[1] * kernel[2] * kernel[3]
+        flops = estimate_conv2d(operation)
     elif kind == "elementwise":
         flops = int(operation.attrs.get("flops_per_element", 1) * numel(operation.output))
     elif kind == "custom":
