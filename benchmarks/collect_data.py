@@ -96,6 +96,8 @@ class BenchRecord:
     achieved_gbw: float
     bottleneck: str
     scale: str = "standard"
+    precision: str = "fp32"
+    mode: str = "inference"
     fused_efficiency: float | None = None
     fused_lower_bound_ms: float | None = None
     traffic_reduction_pct: float | None = None
@@ -111,6 +113,26 @@ class BenchRecord:
     theoretical_conservative_bytes: int | None = None
 
 
+def get_mode_flops_multiplier(mode: str) -> float:
+    """Return theoretical FLOP multiplier relative to forward pass."""
+    mode_clean = mode.lower().strip()
+    if mode_clean == "train_step":
+        return 3.0
+    if mode_clean == "backward_only":
+        return 2.0
+    return 1.0
+
+
+def get_precision_bytes(precision: str) -> int:
+    """Return byte width for target precision."""
+    p = precision.lower().strip()
+    if p in ("fp16", "bf16"):
+        return 2
+    if p in ("int8", "fp8"):
+        return 1
+    return 4
+
+
 def _make_bench_record(
     framework: str,
     variant: str,
@@ -120,6 +142,8 @@ def _make_bench_record(
     gap: Any,
     st: dict[str, float],
     scale: str = "standard",
+    precision: str = "fp32",
+    mode: str = "inference",
     peak_alloc: int | None = None,
     peak_res: int | None = None,
 ) -> BenchRecord:
@@ -178,6 +202,8 @@ def _make_bench_record(
         achieved_gbw=gap.achieved_bandwidth / 1e9,
         bottleneck=gap.bottleneck,
         scale=scale,
+        precision=precision,
+        mode=mode,
         fused_efficiency=getattr(gap, "fused_efficiency", None),
         fused_lower_bound_ms=fused_lb_ms,
         traffic_reduction_pct=traffic_red_pct,
@@ -784,6 +810,8 @@ def eval_torch(
     use_fx: bool = True,
     scale: str = "standard",
     architectures: list[str] | None = None,
+    precision: str = "fp32",
+    mode: str = "inference",
 ) -> list[BenchRecord]:
     import torch
 
@@ -803,6 +831,20 @@ def eval_torch(
         for batch in batches:
             try:
                 model, inputs = get_model(arch, framework="torch", scale=scale, batch=batch)
+                if precision == "fp16":
+                    model = model.half()
+                    inputs = tuple(
+                        x.half() if isinstance(x, torch.Tensor) and x.is_floating_point() else x
+                        for x in inputs
+                    )
+                elif precision == "bf16":
+                    model = model.to(torch.bfloat16)
+                    inputs = tuple(
+                        x.to(torch.bfloat16)
+                        if isinstance(x, torch.Tensor) and x.is_floating_point()
+                        else x
+                        for x in inputs
+                    )
             except Exception as exc:
                 print(f"  PyTorch get_model {arch} scale={scale}: {exc}")
                 continue
@@ -812,10 +854,43 @@ def eval_torch(
             except Exception as exc:
                 print(f"  PyTorch profile {arch} B={batch}: {exc}")
                 continue
+
+            flop_multiplier = get_mode_flops_multiplier(mode)
             cost = prof.cost
+            if flop_multiplier != 1.0:
+                cost = CostEstimate(
+                    flops=int(prof.cost.flops * flop_multiplier),
+                    read_bytes=prof.cost.read_bytes,
+                    write_bytes=prof.cost.write_bytes,
+                    operations=prof.cost.operations,
+                )
+
             # Baseline
             try:
-                samp, peak_alloc, peak_res = _torch_block(model, inputs, warmup, repeats)
+                if mode == "train_step":
+                    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+                    def run_step(*x: Any) -> None:
+                        optimizer.zero_grad(set_to_none=True)
+                        out = model(*x)
+                        loss = out.sum() if isinstance(out, torch.Tensor) else out[0].sum()
+                        loss.backward()
+                        optimizer.step()
+
+                    samp, peak_alloc, peak_res = _torch_block(run_step, inputs, warmup, repeats)
+                elif mode == "backward_only":
+                    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+                    def run_bwd(*x: Any) -> None:
+                        model.zero_grad(set_to_none=True)
+                        out = model(*x)
+                        loss = out.sum() if isinstance(out, torch.Tensor) else out[0].sum()
+                        loss.backward()
+
+                    samp, peak_alloc, peak_res = _torch_block(run_bwd, inputs, warmup, repeats)
+                else:
+                    samp, peak_alloc, peak_res = _torch_block(model, inputs, warmup, repeats)
+
                 st = _stats(samp)
                 meas = Measurement(
                     median_seconds=st["median"] / 1e3,
@@ -840,6 +915,8 @@ def eval_torch(
                         gap,
                         st,
                         scale=scale,
+                        precision=precision,
+                        mode=mode,
                         peak_alloc=peak_alloc,
                         peak_res=peak_res,
                     )
@@ -852,7 +929,28 @@ def eval_torch(
                 # Warmup compile
                 for _ in range(max(3, warmup)):
                     compiled(*inputs)
-                samp, peak_alloc, peak_res = _torch_block(compiled, inputs, 0, repeats)
+                if mode == "train_step":
+                    optimizer = torch.optim.AdamW(compiled.parameters(), lr=1e-3)
+
+                    def run_compiled_step(*x: Any) -> None:
+                        optimizer.zero_grad(set_to_none=True)
+                        out = compiled(*x)
+                        loss = out.sum() if isinstance(out, torch.Tensor) else out[0].sum()
+                        loss.backward()
+                        optimizer.step()
+
+                    samp, peak_alloc, peak_res = _torch_block(run_compiled_step, inputs, warmup, repeats)
+                elif mode == "backward_only":
+                    def run_compiled_bwd(*x: Any) -> None:
+                        compiled.zero_grad(set_to_none=True)
+                        out = compiled(*x)
+                        loss = out.sum() if isinstance(out, torch.Tensor) else out[0].sum()
+                        loss.backward()
+
+                    samp, peak_alloc, peak_res = _torch_block(run_compiled_bwd, inputs, warmup, repeats)
+                else:
+                    samp, peak_alloc, peak_res = _torch_block(compiled, inputs, warmup, repeats)
+
                 st = _stats(samp)
                 meas = Measurement(
                     median_seconds=st["median"] / 1e3,
@@ -877,6 +975,8 @@ def eval_torch(
                         gap,
                         st,
                         scale=scale,
+                        precision=precision,
+                        mode=mode,
                         peak_alloc=peak_alloc,
                         peak_res=peak_res,
                     )
@@ -893,6 +993,8 @@ def eval_jax(
     repeats: int,
     scale: str = "standard",
     architectures: list[str] | None = None,
+    precision: str = "fp32",
+    mode: str = "inference",
 ) -> list[BenchRecord]:
     import jax
 
@@ -911,7 +1013,15 @@ def eval_jax(
             except Exception as exc:
                 print(f"  JAX profile {arch} B={batch}: {exc}")
                 continue
+            flop_multiplier = get_mode_flops_multiplier(mode)
             cost = prof.cost
+            if flop_multiplier != 1.0:
+                cost = CostEstimate(
+                    flops=int(prof.cost.flops * flop_multiplier),
+                    read_bytes=prof.cost.read_bytes,
+                    write_bytes=prof.cost.write_bytes,
+                    operations=prof.cost.operations,
+                )
             # Baseline (eager)
             try:
                 samp, peak_alloc, peak_res = _jax_block(model, inputs, warmup, repeats)
@@ -939,6 +1049,8 @@ def eval_jax(
                         gap,
                         st,
                         scale=scale,
+                        precision=precision,
+                        mode=mode,
                         peak_alloc=peak_alloc,
                         peak_res=peak_res,
                     )
@@ -979,6 +1091,8 @@ def eval_jax(
                         gap,
                         st,
                         scale=scale,
+                        precision=precision,
+                        mode=mode,
                         peak_alloc=peak_alloc,
                         peak_res=peak_res,
                     )
@@ -995,6 +1109,8 @@ def eval_tensorflow(
     repeats: int,
     scale: str = "standard",
     architectures: list[str] | None = None,
+    precision: str = "fp32",
+    mode: str = "inference",
 ) -> list[BenchRecord]:
     import tensorflow as tf
 
@@ -1010,7 +1126,15 @@ def eval_tensorflow(
                 prof = profile_model(model, inputs, adapter)
             except Exception:
                 continue
+            flop_multiplier = get_mode_flops_multiplier(mode)
             cost = prof.cost
+            if flop_multiplier != 1.0:
+                cost = CostEstimate(
+                    flops=int(prof.cost.flops * flop_multiplier),
+                    read_bytes=prof.cost.read_bytes,
+                    write_bytes=prof.cost.write_bytes,
+                    operations=prof.cost.operations,
+                )
             fn = lambda *a: model(*a, training=False)
             # Baseline (eager)
             try:
@@ -1039,6 +1163,8 @@ def eval_tensorflow(
                         gap,
                         st,
                         scale=scale,
+                        precision=precision,
+                        mode=mode,
                         peak_alloc=peak_alloc,
                         peak_res=peak_res,
                     )
@@ -1075,6 +1201,8 @@ def eval_tensorflow(
                         gap,
                         st,
                         scale=scale,
+                        precision=precision,
+                        mode=mode,
                         peak_alloc=peak_alloc,
                         peak_res=peak_res,
                     )
@@ -1111,6 +1239,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include legacy recurrent architectures (RNN, LSTM)",
     )
     parser.add_argument(
+        "--precision",
+        choices=["fp32", "fp16", "bf16", "int8"],
+        default="fp32",
+        help="Target compute precision (default: fp32)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["inference", "train_step", "backward_only"],
+        default="inference",
+        help="Operational execution mode (default: inference)",
+    )
+    parser.add_argument(
         "--quick", action="store_true", help="Fewer batch sizes and repeats for fast iteration"
     )
     parser.add_argument("--warmup", type=int, default=15)
@@ -1133,7 +1273,7 @@ def main() -> None:
     active_archs = get_benchmarked_architectures(include_legacy=args.include_legacy)
 
     print("Detecting hardware…", flush=True)
-    hardware, detection = detect_hardware()
+    hardware, detection = detect_hardware(precision=args.precision)
     if args.peak_flops:
         hardware = HardwareSpec(
             hardware.name,
@@ -1160,7 +1300,9 @@ def main() -> None:
     print(
         f"  {hardware.name}  {hardware.peak_flops / 1e12:.2f} TFLOP/s  {hardware.memory_bandwidth / 1e9:.0f} GB/s"
     )
-    print(f"  Scale={args.scale}  Batches={batches}  warmup={warmup}  repeats={repeats}\n")
+    print(
+        f"  Scale={args.scale}  Precision={args.precision}  Mode={args.mode}  Batches={batches}  warmup={warmup}  repeats={repeats}\n"
+    )
 
     all_records: list[BenchRecord] = []
     for pkg, (label, runner) in RUNNERS.items():
@@ -1177,6 +1319,8 @@ def main() -> None:
                 use_fx=not args.no_fx,
                 scale=args.scale,
                 architectures=active_archs,
+                precision=args.precision,
+                mode=args.mode,
             )
         else:
             recs = runner(
@@ -1186,6 +1330,8 @@ def main() -> None:
                 repeats,
                 scale=args.scale,
                 architectures=active_archs,
+                precision=args.precision,
+                mode=args.mode,
             )
         all_records.extend(recs)
         for r in recs:

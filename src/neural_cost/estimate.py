@@ -281,3 +281,14 @@ def estimate_fused_operations(operations: Iterable[Operation]) -> FusedCostEstim
         eliminated_bytes=eliminated_total,
         fused_groups_count=fused_groups,
     )
+
+
+def estimate_adamw_traffic(num_parameters: int, dtype_bytes: int = 4) -> int:
+    """Model DRAM traffic for an AdamW optimizer step across model parameters.
+
+    For parameter count P:
+      Reads:  Parameter (P), Gradient (P), First Moment (P), Second Moment (P) = 4P
+      Writes: Updated Parameter (P), First Moment (P), Second Moment (P)       = 3P
+      Total DRAM bytes: (4P + 3P) * dtype_bytes = 7 * P * dtype_bytes.
+    """
+    return 7 * int(num_parameters) * int(dtype_bytes)

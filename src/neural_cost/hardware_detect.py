@@ -47,6 +47,35 @@ _APPLE_CHIP_TABLE: dict[str, tuple[float, float, tuple[CacheSpec, ...]]] = {
     "M4 Max": (18.4, 546.0, (CacheSpec("SLC", 1200e9, 48 * 1024 * 1024),)),
 }
 
+# ---------------------------------------------------------------------------
+# NVIDIA Datacenter and Desktop GPU Chip Table
+# Published peak TFLOP/s (FP32, TF32 Tensor Core, FP16 Tensor Core), bandwidth (GB/s),
+# and L2 Cache specs across Ampere, Ada Lovelace, and Hopper architectures.
+# ---------------------------------------------------------------------------
+_NVIDIA_CHIP_TABLE: dict[str, tuple[float, float, float, float, tuple[CacheSpec, ...]]] = {
+    # (peak_tflops_fp32, peak_tflops_tf32, peak_tflops_fp16, bandwidth_gb_s, (CacheSpec(...), ...))
+    "A100": (19.5, 312.0, 624.0, 1935.0, (CacheSpec("L2", 4000e9, 40 * 1024 * 1024),)),
+    "A100-SXM4-80GB": (19.5, 312.0, 624.0, 2039.0, (CacheSpec("L2", 4000e9, 40 * 1024 * 1024),)),
+    "A100-PCIe-80GB": (19.5, 312.0, 624.0, 1935.0, (CacheSpec("L2", 4000e9, 40 * 1024 * 1024),)),
+    "L40S": (91.6, 183.0, 366.0, 864.0, (CacheSpec("L2", 2000e9, 96 * 1024 * 1024),)),
+    "L40": (90.5, 181.0, 362.0, 864.0, (CacheSpec("L2", 2000e9, 96 * 1024 * 1024),)),
+    "H100": (60.0, 756.0, 1513.0, 3350.0, (CacheSpec("L2", 6000e9, 50 * 1024 * 1024),)),
+    "H100-SXM": (60.0, 756.0, 1513.0, 3350.0, (CacheSpec("L2", 6000e9, 50 * 1024 * 1024),)),
+    "H100-PCIe": (51.0, 640.0, 1280.0, 2000.0, (CacheSpec("L2", 6000e9, 50 * 1024 * 1024),)),
+    "L4": (30.3, 60.0, 120.0, 300.0, (CacheSpec("L2", 1000e9, 48 * 1024 * 1024),)),
+    "T4": (8.1, 8.1, 65.0, 320.0, (CacheSpec("L2", 500e9, 4 * 1024 * 1024),)),
+}
+
+
+def _precision_multiplier(precision: str) -> float:
+    """Return compute acceleration multiplier for precision relative to FP32."""
+    p = precision.lower().strip()
+    if p in ("fp16", "bf16"):
+        return 2.0
+    if p in ("int8", "fp8"):
+        return 4.0
+    return 1.0
+
 
 @dataclass
 class DetectionResult:
@@ -140,11 +169,42 @@ def _probe_apple_silicon() -> tuple[str | None, float | None, float | None, tupl
     return chip_raw, tflops * 1e12, bw * 1e9, caches
 
 
-def _probe_nvidia() -> tuple[float | None, float | None, tuple[CacheSpec, ...]]:
-    """Return (peak_fp32_flops, bandwidth_bytes_s, caches) from nvidia-smi if present."""
+def _probe_nvidia(
+    precision: str = "fp32",
+) -> tuple[str | None, float | None, float | None, tuple[CacheSpec, ...]]:
+    """Return (chip_name, peak_flops, bandwidth_bytes_s, caches) from nvidia-smi if present."""
     if not shutil.which("nvidia-smi"):
-        return None, None, ()
+        return None, None, None, ()
     try:
+        try:
+            gpu_name_out = (
+                subprocess.check_output(
+                    ["nvidia-smi", "--query-gpu=gpu_name", "--format=csv,noheader"],
+                    text=True,
+                    timeout=10,
+                )
+                .strip()
+                .splitlines()
+            )
+            detected_name = gpu_name_out[0].strip() if gpu_name_out else None
+        except (subprocess.SubprocessError, OSError, ValueError):
+            detected_name = None
+
+        if detected_name:
+            for chip_key, entry in _NVIDIA_CHIP_TABLE.items():
+                if chip_key.upper() in detected_name.upper():
+                    p_fp32, p_tf32, p_fp16, bw_gb, caches = entry
+                    p = precision.lower().strip()
+                    if p in ("fp16", "bf16"):
+                        tflops = p_fp16
+                    elif p == "tf32":
+                        tflops = p_tf32
+                    elif p in ("int8", "fp8"):
+                        tflops = p_fp16 * 2.0
+                    else:
+                        tflops = p_fp32
+                    return detected_name, tflops * 1e12, bw_gb * 1e9, caches
+
         # Compute clock (MHz) and memory bandwidth (GB/s) for device 0.
         clock_out = subprocess.check_output(
             [
@@ -157,19 +217,16 @@ def _probe_nvidia() -> tuple[float | None, float | None, tuple[CacheSpec, ...]]:
         )
         parts = [p.strip() for p in clock_out.strip().split(",")]
         if len(parts) < 3:
-            return None, None, ()
+            return None, None, None, ()
         sm_mhz = float(parts[0])
         mem_mhz = float(parts[2])
-        # Rough FP32: SM_clock × 2 FMA × 128 CUDA cores / SM × (SM count guess 40)
-        # Better: read cuda_cores directly — use a conservative scalar estimate.
-        peak_flops = sm_mhz * 1e6 * 2 * 5120  # rough assumption
-        # GDDR6/HBM: bandwidth ≈ mem_clock × bus_width / 8.
-        # nvidia-smi doesn't expose bus width easily; use a 256-bit guess.
+        mult = _precision_multiplier(precision)
+        peak_flops = sm_mhz * 1e6 * 2 * 5120 * mult
         bandwidth = mem_mhz * 1e6 * 2 * 256 / 8
         caches = (CacheSpec("L2", bandwidth * 3.0, 40 * 1024 * 1024),)
-        return peak_flops, bandwidth, caches
+        return detected_name or "NVIDIA GPU", peak_flops, bandwidth, caches
     except (subprocess.SubprocessError, OSError, ValueError):
-        return None, None, ()
+        return None, None, None, ()
 
 
 def _probe_cpu_flops() -> tuple[int, float | None]:
@@ -219,7 +276,10 @@ def _probe_cpu_flops() -> tuple[int, float | None]:
 # ---------------------------------------------------------------------------
 
 
-def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, DetectionResult]:
+def detect_hardware(
+    bandwidth_benchmark_mb: int = 256,
+    precision: str = "fp32",
+) -> tuple[HardwareSpec, DetectionResult]:
     """Probe this machine and return a :class:`HardwareSpec` for roofline analysis.
 
     Parameters
@@ -227,6 +287,9 @@ def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, De
     bandwidth_benchmark_mb:
         Working-set size in MiB for the NumPy bandwidth benchmark.  Increase
         for machines with very large L3 caches (e.g. 512 for server CPUs).
+    precision:
+        Target precision ('fp32', 'fp16', 'bf16', 'int8'). Accelerators report
+        higher peak compute for lower precisions.
 
     Returns
     -------
@@ -236,14 +299,15 @@ def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, De
         :class:`DetectionResult` with all raw probed values for display.
     """
     measured_bw = _measure_bandwidth_gb_s(size_mb=bandwidth_benchmark_mb)
+    mult = _precision_multiplier(precision)
 
     # --- Apple Silicon ---
     chip_name, apple_peak_flops, apple_bw, apple_caches = _probe_apple_silicon()
     if apple_peak_flops is not None:
-        peak_flops = apple_peak_flops
+        peak_flops = apple_peak_flops * mult
         # Prefer manufacturer bandwidth; measured value is a lower bound.
         memory_bandwidth = max(apple_bw or 0.0, measured_bw * 1e9)
-        source = f"Apple Silicon table ({chip_name}) + NumPy STREAM triad"
+        source = f"Apple Silicon table ({chip_name}) [{precision.upper()}] + NumPy STREAM triad"
         cores, clock_hz = _probe_cpu_flops()
         return (
             HardwareSpec(
@@ -261,15 +325,17 @@ def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, De
         )
 
     # --- NVIDIA GPU ---
-    nvidia_flops, nvidia_bw, nvidia_caches = _probe_nvidia()
+    gpu_name, nvidia_flops, nvidia_bw, nvidia_caches = _probe_nvidia(precision=precision)
     if nvidia_flops is not None and nvidia_bw is not None:
         memory_bandwidth = max(nvidia_bw, measured_bw * 1e9)
-        source = "nvidia-smi (approximate) + NumPy STREAM triad"
+        source = f"NVIDIA profile ({gpu_name}) [{precision.upper()}] + NumPy STREAM triad"
         cores, clock_hz = _probe_cpu_flops()
         return (
-            HardwareSpec("NVIDIA GPU", nvidia_flops, memory_bandwidth, caches=nvidia_caches),
+            HardwareSpec(
+                gpu_name or "NVIDIA GPU", nvidia_flops, memory_bandwidth, caches=nvidia_caches
+            ),
             DetectionResult(
-                None,
+                gpu_name,
                 cores,
                 clock_hz,
                 measured_bw,
@@ -283,16 +349,16 @@ def detect_hardware(bandwidth_benchmark_mb: int = 256) -> tuple[HardwareSpec, De
     cores, clock_hz = _probe_cpu_flops()
     if clock_hz:
         # scalar FP32 FMA = 2 FLOP/cycle/core; use conservative 2× factor
-        peak_flops = cores * clock_hz * 2.0
+        peak_flops = cores * clock_hz * 2.0 * mult
     else:
         # Very conservative: assume 2 GFLOP/s per core at unknown speed
-        peak_flops = cores * 2e9
+        peak_flops = cores * 2e9 * mult
 
     memory_bandwidth = measured_bw * 1e9
     source = (
         f"CPU estimate ({cores} cores"
         + (f" @ {clock_hz / 1e9:.2f} GHz" if clock_hz else "")
-        + ") + NumPy STREAM triad"
+        + f" [{precision.upper()}]) + NumPy STREAM triad"
     )
     return (
         HardwareSpec("CPU", peak_flops, memory_bandwidth),
