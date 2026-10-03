@@ -224,3 +224,56 @@ class TorchFxAdapterE2ETest(unittest.TestCase):
         adapter = TorchFxAdapter()
         estimate = estimate_model(model, inputs, adapter)
         self.assertGreaterEqual(estimate.operations, 1)
+
+    def test_torch_adapter_rmsnorm_tracing(self):
+        import sys
+        from pathlib import Path
+
+        import torch
+
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+
+        from benchmarks.models.operators import RMSNorm
+        from neural_cost.adapters import TorchAdapter
+
+        class ModelWithRMSNorm(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.norm = torch.nn.RMSNorm(64) if hasattr(torch.nn, "RMSNorm") else RMSNorm(64)
+
+            def forward(self, x):
+                return self.norm(x)
+
+        model = ModelWithRMSNorm()
+        inputs = (torch.randn(2, 16, 64),)
+        adapter = TorchAdapter()
+        ops = adapter.operations(model, inputs)
+        self.assertTrue(any(op.kind == "rmsnorm" for op in ops))
+
+    def test_torch_fx_adapter_sdpa_and_no_double_counting(self):
+        import sys
+        from pathlib import Path
+
+        import torch
+
+        repo_root = str(Path(__file__).resolve().parent.parent)
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+
+        from benchmarks.models.operators import SDPASelfAttention
+        from neural_cost import estimate_model
+        from neural_cost.adapters import TorchFxAdapter
+
+        model = SDPASelfAttention(embed_dim=128, num_heads=4)
+        inputs = (torch.randn(2, 32, 128),)
+        adapter = TorchFxAdapter()
+        ops = adapter.operations(model, inputs)
+        kinds = [op.kind for op in ops]
+        self.assertEqual(kinds.count("linear"), 4)
+        self.assertIn("attention", kinds)
+
+        est = estimate_model(model, inputs, adapter)
+        # 4 linears (8,388,608) + sdpa attention core (1,089,536) = 9,478,144 FLOPs
+        self.assertEqual(est.flops, 9478144)

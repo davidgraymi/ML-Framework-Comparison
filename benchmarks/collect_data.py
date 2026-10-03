@@ -434,31 +434,61 @@ def _torch_lstm(batch: int):
 
 def _torch_transformer(batch: int):
     import torch
+    import torch.nn.functional as F
+
+    class RMSNorm(torch.nn.Module):
+        def __init__(self, dim: int, eps: float = 1e-6):
+            super().__init__()
+            self.eps = eps
+            self.weight = torch.nn.Parameter(torch.ones(dim))
+
+        def forward(self, x):
+            rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+            return x * rms * self.weight
+
+    class SDPASelfAttention(torch.nn.Module):
+        def __init__(self, embed_dim: int, num_heads: int):
+            super().__init__()
+            self.num_heads = num_heads
+            self.head_dim = embed_dim // num_heads
+            self.q_proj = torch.nn.Linear(embed_dim, embed_dim)
+            self.k_proj = torch.nn.Linear(embed_dim, embed_dim)
+            self.v_proj = torch.nn.Linear(embed_dim, embed_dim)
+            self.out_proj = torch.nn.Linear(embed_dim, embed_dim)
+
+        def forward(self, x):
+            b, l, d = x.shape
+            q = self.q_proj(x).view(b, l, self.num_heads, self.head_dim).transpose(1, 2)
+            k = self.k_proj(x).view(b, l, self.num_heads, self.head_dim).transpose(1, 2)
+            v = self.v_proj(x).view(b, l, self.num_heads, self.head_dim).transpose(1, 2)
+            out = F.scaled_dot_product_attention(q, k, v)
+            return self.out_proj(out.transpose(1, 2).contiguous().view(b, l, d))
+
+    class SwiGLU(torch.nn.Module):
+        def __init__(self, in_features: int, hidden_features: int):
+            super().__init__()
+            self.w_gate = torch.nn.Linear(in_features, hidden_features, bias=False)
+            self.w_up = torch.nn.Linear(in_features, hidden_features, bias=False)
+            self.w_down = torch.nn.Linear(hidden_features, in_features, bias=False)
+
+        def forward(self, x):
+            return self.w_down(F.silu(self.w_gate(x)) * self.w_up(x))
 
     class M(torch.nn.Module):
+        """Transformer model using scaled_dot_product_attention (SDPA)."""
+
         def __init__(self):
             super().__init__()
-            self.attn1 = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
-            self.norm1a = torch.nn.LayerNorm(EMBED_DIM)
-            self.ff1 = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
-            self.ff1b = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
-            self.norm1b = torch.nn.LayerNorm(EMBED_DIM)
-            self.attn2 = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
-            self.norm2a = torch.nn.LayerNorm(EMBED_DIM)
-            self.ff2 = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
-            self.ff2b = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
-            self.norm2b = torch.nn.LayerNorm(EMBED_DIM)
+            self.norm1 = RMSNorm(EMBED_DIM)
+            self.attn = SDPASelfAttention(EMBED_DIM, NUM_HEADS)
+            self.norm2 = RMSNorm(EMBED_DIM)
+            self.ffn = SwiGLU(EMBED_DIM, int(EMBED_DIM * 8 / 3))
             self.head = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
 
         def forward(self, x):
-            xt = x.permute(1, 0, 2)
-            a1, _ = self.attn1(xt, xt, xt)
-            xt = self.norm1a(xt + a1)
-            xt = self.norm1b(xt + self.ff1b(torch.relu(self.ff1(xt))))
-            a2, _ = self.attn2(xt, xt, xt)
-            xt = self.norm2a(xt + a2)
-            xt = self.norm2b(xt + self.ff2b(torch.relu(self.ff2(xt))))
-            return self.head(xt.mean(0))
+            x = x + self.attn(self.norm1(x))
+            x = x + self.ffn(self.norm2(x))
+            return self.head(x.mean(1))
 
     m = M().eval()
     x = torch.randn(batch, 32, EMBED_DIM)
@@ -558,31 +588,63 @@ def _jax_lstm(batch: int):
 
 
 def _jax_transformer(batch: int):
+    import jax.nn as jnn
     import jax.numpy as jnp
 
     T = 32
     hd = EMBED_DIM // NUM_HEADS
+    d_inter = int(EMBED_DIM * 8 / 3)
+    gamma1 = jnp.ones(EMBED_DIM)
     wq = jnp.ones((EMBED_DIM, EMBED_DIM))
     wk = jnp.ones((EMBED_DIM, EMBED_DIM))
     wv = jnp.ones((EMBED_DIM, EMBED_DIM))
     wo = jnp.ones((EMBED_DIM, EMBED_DIM))
-    wf1 = jnp.ones((EMBED_DIM, EMBED_DIM * 4))
-    wf2 = jnp.ones((EMBED_DIM * 4, EMBED_DIM))
+    gamma2 = jnp.ones(EMBED_DIM)
+    w_gate = jnp.ones((EMBED_DIM, d_inter))
+    w_up = jnp.ones((EMBED_DIM, d_inter))
+    w_down = jnp.ones((d_inter, EMBED_DIM))
     wfc = jnp.ones((EMBED_DIM, NUM_CLASSES))
-    scale = hd**-0.5
 
-    def attn(x, wq_, wk_, wv_, wo_):
-        q, k, v = x @ wq_, x @ wk_, x @ wv_
-        s = (q * scale) @ k.transpose(0, 2, 1)
-        w = jnp.exp(s) / jnp.exp(s).sum(-1, keepdims=True)
-        return (w @ v) @ wo_
+    def rmsnorm(u, gamma):
+        return (u / jnp.sqrt(jnp.mean(jnp.square(u), -1, keepdims=True) + 1e-6)) * gamma
 
-    def model(x, _wq=wq, _wk=wk, _wv=wv, _wo=wo, _wf1=wf1, _wf2=wf2, _wfc=wfc):
-        x = x + attn(x, _wq, _wk, _wv, _wo)
-        x = x + jnp.tanh(x @ _wf1) @ _wf2
+    def attn(u, _wq, _wk, _wv, _wo):
+        b, l, d = u.shape
+        q = (u @ _wq).reshape((b, l, NUM_HEADS, hd))
+        k = (u @ _wk).reshape((b, l, NUM_HEADS, hd))
+        v = (u @ _wv).reshape((b, l, NUM_HEADS, hd))
+        return jax.nn.dot_product_attention(q, k, v).reshape((b, l, d)) @ _wo
+
+    def model(
+        x,
+        _g1=gamma1,
+        _wq=wq,
+        _wk=wk,
+        _wv=wv,
+        _wo=wo,
+        _g2=gamma2,
+        _wg=w_gate,
+        _wu=w_up,
+        _wd=w_down,
+        _wfc=wfc,
+    ):
+        x = x + attn(rmsnorm(x, _g1), _wq, _wk, _wv, _wo)
+        x = x + ((jnn.silu(rmsnorm(x, _g2) @ _wg) * (rmsnorm(x, _g2) @ _wu)) @ _wd)
         return x.mean(1) @ _wfc
 
-    return model, (jnp.ones((batch, T, EMBED_DIM)), wq, wk, wv, wo, wf1, wf2, wfc)
+    return model, (
+        jnp.ones((batch, T, EMBED_DIM)),
+        gamma1,
+        wq,
+        wk,
+        wv,
+        wo,
+        gamma2,
+        w_gate,
+        w_up,
+        w_down,
+        wfc,
+    )
 
 
 JAX_BUILDERS = {

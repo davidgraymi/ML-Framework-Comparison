@@ -12,6 +12,11 @@ MODERN_ARCHITECTURES: list[str] = ["FF DNN", "ConvNeXt", "ViT", "Transformer"]
 LEGACY_ARCHITECTURES: list[str] = ["CNN", "RNN", "LSTM"]
 ALL_ARCHITECTURES: list[str] = MODERN_ARCHITECTURES + LEGACY_ARCHITECTURES
 
+try:
+    from .operators import RMSNorm, SDPASelfAttention, SwiGLU
+except ImportError:
+    pass
+
 SCALE_BATCH_SIZES: dict[str, list[int]] = {
     "micro": [1, 8, 32, 128],
     "standard": [1, 4, 16, 64],
