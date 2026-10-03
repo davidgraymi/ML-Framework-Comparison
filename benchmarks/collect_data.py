@@ -42,11 +42,14 @@ from benchmarks.models import (
     get_model,
 )
 from neural_cost import (
+    CostEstimate,
     HardwareSpec,
     Measurement,
     analyze_gap,
     analyze_memory_gap,
+    estimate_adamw_traffic,
     estimate_fused_operations,
+    estimate_memory,
     profile_model,
 )
 from neural_cost.adapters import (
@@ -111,6 +114,7 @@ class BenchRecord:
     memory_overhead_ratio: float | None = None
     theoretical_min_bytes: int | None = None
     theoretical_conservative_bytes: int | None = None
+    training_minimum_bytes: int | None = None
 
 
 def get_mode_flops_multiplier(mode: str) -> float:
@@ -183,6 +187,14 @@ def _make_bench_record(
         if peak_alloc is not None and theo_min is not None and theo_min > 0:
             ratio = round(peak_alloc / theo_min, 4)
 
+    training_min_b = None
+    if mode == "train_step" and getattr(prof, "operations", None):
+        try:
+            mem_train = estimate_memory(prof.operations, training=True, optimizer_state_multiplier=2.0)
+            training_min_b = mem_train.training_minimum_bytes
+        except Exception:
+            training_min_b = None
+
     return BenchRecord(
         framework=framework,
         variant=variant,
@@ -217,6 +229,7 @@ def _make_bench_record(
         memory_overhead_ratio=ratio,
         theoretical_min_bytes=theo_min,
         theoretical_conservative_bytes=theo_cons,
+        training_minimum_bytes=training_min_b,
     )
 
 
