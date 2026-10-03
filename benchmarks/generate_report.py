@@ -15,6 +15,7 @@ import math
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -24,40 +25,82 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-REPO_ROOT   = Path(__file__).parent.parent
-DATA_FILE   = REPO_ROOT / "benchmarks" / "results" / "benchmark_data.json"
-FIG_DIR     = REPO_ROOT / "benchmarks" / "results" / "figures"
+REPO_ROOT = Path(__file__).parent.parent
+DATA_FILE = REPO_ROOT / "benchmarks" / "results" / "benchmark_data.json"
+FIG_DIR = REPO_ROOT / "benchmarks" / "results" / "figures"
 REPORT_FILE = REPO_ROOT / "BENCHMARK_REPORT.md"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Style
 # ---------------------------------------------------------------------------
-plt.rcParams.update({
-    "figure.dpi": 130,
-    "font.family": "sans-serif",
-    "font.size": 10,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.grid": True,
-    "grid.alpha": 0.3,
-    "axes.labelsize": 10,
-    "legend.fontsize": 9,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-})
+plt.rcParams.update(
+    {
+        "figure.dpi": 130,
+        "font.family": "sans-serif",
+        "font.size": 10,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.alpha": 0.3,
+        "axes.labelsize": 10,
+        "legend.fontsize": 9,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+    }
+)
 
-FW_COLORS  = {"PyTorch": "#EE4C2C", "JAX": "#9B59B6", "TensorFlow": "#FF6F00"}
-VAR_ALPHA  = {"baseline": 0.55, "compiled": 1.0, "jit": 1.0, "tf.function": 1.0}
-VAR_HATCH  = {"baseline": "////", "compiled": "", "jit": "", "tf.function": ""}
-ARCHS      = ["FF DNN", "CNN", "RNN", "LSTM", "Transformer"]
+FW_COLORS = {"PyTorch": "#EE4C2C", "JAX": "#9B59B6", "TensorFlow": "#FF6F00"}
+VAR_ALPHA = {"baseline": 0.55, "compiled": 1.0, "jit": 1.0, "tf.function": 1.0}
+VAR_HATCH = {"baseline": "////", "compiled": "", "jit": "", "tf.function": ""}
+DEFAULT_ARCH_ORDER = [
+    "FF DNN",
+    "Deep DNN",
+    "CNN",
+    "ConvNeXt",
+    "ViT",
+    "Transformer",
+    "RNN",
+    "LSTM",
+]
+ARCHS = DEFAULT_ARCH_ORDER
 FRAMEWORKS = ["PyTorch", "JAX", "TensorFlow"]
 BEST_VARIANTS = {"PyTorch": "compiled", "JAX": "jit", "TensorFlow": "tf.function"}
+
+MARKERS = {
+    "FF DNN": "o",
+    "Deep DNN": "o",
+    "CNN": "s",
+    "ConvNeXt": "p",
+    "ViT": "h",
+    "Transformer": "P",
+    "RNN": "D",
+    "LSTM": "^",
+}
+
+
+def get_reference_batch(records: list[dict], preferred: int = 32) -> int:
+    """Select a reference batch dynamically based on swept batches in data."""
+    batches = sorted({r["batch"] for r in records if "batch" in r})
+    if not batches:
+        return preferred
+    if preferred in batches:
+        return preferred
+    return batches[len(batches) // 2]
+
+
+def get_active_architectures(records: list[dict]) -> list[str]:
+    """Return ordered list of architectures present in records."""
+    present = {r["architecture"] for r in records if "architecture" in r}
+    ordered = [a for a in DEFAULT_ARCH_ORDER if a in present]
+    remainder = sorted([a for a in present if a not in DEFAULT_ARCH_ORDER])
+    return ordered + remainder or ["FF DNN", "CNN", "Transformer"]
 
 
 # ---------------------------------------------------------------------------
 # Data helpers
 # ---------------------------------------------------------------------------
+
 
 def load(path: Path) -> tuple[dict, list[dict]]:
     raw = json.loads(path.read_text())
@@ -100,45 +143,65 @@ def rep_batch(records: list[dict], preferred: int = 32) -> int:
 # Figure 1: Roofline scatter (AI vs GFLOP/s) for representative batch
 # ---------------------------------------------------------------------------
 
-def fig_roofline(hw: dict, records: list[dict]) -> Path:
+
+def fig_roofline(hw: dict, records: list[dict], batch: int | None = None) -> Path:
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
 
     peak_gflops = hw["peak_flops"] / 1e9
-    bw_gb_s     = hw["memory_bandwidth"] / 1e9
-    ridge       = hw["ridge_point"]
+    bw_gb_s = hw["memory_bandwidth"] / 1e9
+    ridge = hw["ridge_point"]
 
     ai_range = np.logspace(-1, 3, 500)
-    roofline  = np.minimum(peak_gflops, ai_range * bw_gb_s)
+    roofline = np.minimum(peak_gflops, ai_range * bw_gb_s)
     ax.loglog(ai_range, roofline, "k-", lw=2, label="Roofline bound", zorder=5)
     ax.axvline(ridge, color="k", lw=1, ls="--", alpha=0.5, label=f"Ridge ({ridge:.0f} FLOP/byte)")
 
-    batch = rep_batch(records)
-    markers = {"FF DNN": "o", "CNN": "s", "RNN": "D", "LSTM": "^", "Transformer": "P"}
+    if batch is None:
+        batch = get_reference_batch(records)
+    archs = get_active_architectures(records)
 
     for fw in FRAMEWORKS:
-        for arch in ARCHS:
-            ai_val  = get(records, fw, "baseline", arch, batch, "arith_intensity")
+        for arch in archs:
+            ai_val = get(records, fw, "baseline", arch, batch, "arith_intensity")
             gf_best = best(records, fw, arch, batch, "achieved_gflops")
             if ai_val is None or gf_best is None:
                 continue
             col = FW_COLORS[fw]
-            mk  = markers[arch]
-            ax.scatter(ai_val, gf_best, c=col, marker=mk, s=90, zorder=6,
-                       edgecolors="white", linewidths=0.5)
-            ax.annotate(f"{fw[:3]}", (ai_val, gf_best),
-                        textcoords="offset points", xytext=(5, 2),
-                        fontsize=7, color=col, alpha=0.85)
+            mk = MARKERS.get(arch, "o")
+            ax.scatter(
+                ai_val,
+                gf_best,
+                c=col,
+                marker=mk,
+                s=90,
+                zorder=6,
+                edgecolors="white",
+                linewidths=0.5,
+            )
+            ax.annotate(
+                f"{fw[:3]}",
+                (ai_val, gf_best),
+                textcoords="offset points",
+                xytext=(5, 2),
+                fontsize=7,
+                color=col,
+                alpha=0.85,
+            )
 
     # Legend for frameworks
     fw_patches = [mpatches.Patch(color=FW_COLORS[f], label=f) for f in FRAMEWORKS]
-    arch_lines = [plt.scatter([], [], marker=markers[a], c="gray", s=70, label=a) for a in ARCHS]
+    arch_lines = [
+        plt.scatter([], [], marker=MARKERS.get(a, "o"), c="gray", s=70, label=a) for a in archs
+    ]
     leg1 = ax.legend(handles=fw_patches, loc="lower right", title="Framework", framealpha=0.9)
     ax.legend(handles=arch_lines, loc="upper left", title="Architecture", framealpha=0.9)
     ax.add_artist(leg1)
 
     ax.set_xlabel("Arithmetic Intensity (FLOP / byte)")
     ax.set_ylabel("Achieved Throughput (GFLOP/s)")
-    ax.set_title(f"Roofline Model — {hw['name']}  (batch={batch}, optimised variants)", fontweight="bold")
+    ax.set_title(
+        f"Roofline Model — {hw['name']}  (batch={batch}, optimised variants)", fontweight="bold"
+    )
     ax.set_xlim(0.8, 600)
     ax.set_ylim(0.5, peak_gflops * 3)
     ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
@@ -154,24 +217,38 @@ def fig_roofline(hw: dict, records: list[dict]) -> Path:
 # Figure 2: Latency grouped bar chart (best variants)
 # ---------------------------------------------------------------------------
 
-def fig_latency_bars(hw: dict, records: list[dict]) -> Path:
-    batch = rep_batch(records)
-    x     = np.arange(len(ARCHS))
+
+def fig_latency_bars(hw: dict, records: list[dict], batch: int | None = None) -> Path:
+    if batch is None:
+        batch = get_reference_batch(records)
+    archs = get_active_architectures(records)
+    x = np.arange(len(archs))
     width = 0.25
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(max(10, len(archs) * 1.5), 5))
 
     for i, fw in enumerate(FRAMEWORKS):
-        vals = [best(records, fw, arch, batch, "latency_median_ms") or 0 for arch in ARCHS]
-        errs = [best(records, fw, arch, batch, "latency_stddev_ms") or 0 for arch in ARCHS]
-        bars = ax.bar(x + i * width, vals, width * 0.88,
-                      label=fw, color=FW_COLORS[fw], alpha=0.88,
-                      yerr=errs, capsize=3, error_kw={"elinewidth": 1.2, "ecolor": "black", "alpha": 0.6})
+        vals = [best(records, fw, arch, batch, "latency_median_ms") or 0 for arch in archs]
+        errs = [best(records, fw, arch, batch, "latency_stddev_ms") or 0 for arch in archs]
+        bars = ax.bar(
+            x + i * width,
+            vals,
+            width * 0.88,
+            label=fw,
+            color=FW_COLORS[fw],
+            alpha=0.88,
+            yerr=errs,
+            capsize=3,
+            error_kw={"elinewidth": 1.2, "ecolor": "black", "alpha": 0.6},
+        )
 
     ax.set_xticks(x + width)
-    ax.set_xticklabels(ARCHS)
+    ax.set_xticklabels(archs)
     ax.set_ylabel("Median Latency (ms)")
-    ax.set_title(f"Inference Latency by Architecture & Framework\n"
-                 f"{hw['name']}  ·  batch={batch}  ·  optimised variants", fontweight="bold")
+    ax.set_title(
+        f"Inference Latency by Architecture & Framework\n"
+        f"{hw['name']}  ·  batch={batch}  ·  optimised variants",
+        fontweight="bold",
+    )
     ax.legend(framealpha=0.9)
     ax.set_ylim(bottom=0)
     fig.tight_layout()
@@ -185,32 +262,46 @@ def fig_latency_bars(hw: dict, records: list[dict]) -> Path:
 # Figure 3: Roofline efficiency heatmap (arch × framework, best variant)
 # ---------------------------------------------------------------------------
 
-def fig_efficiency_heatmap(hw: dict, records: list[dict]) -> Path:
-    batch = rep_batch(records)
-    matrix = np.full((len(ARCHS), len(FRAMEWORKS)), np.nan)
-    for i, arch in enumerate(ARCHS):
+
+def fig_efficiency_heatmap(hw: dict, records: list[dict], batch: int | None = None) -> Path:
+    if batch is None:
+        batch = get_reference_batch(records)
+    archs = get_active_architectures(records)
+    matrix = np.full((len(archs), len(FRAMEWORKS)), np.nan)
+    for i, arch in enumerate(archs):
         for j, fw in enumerate(FRAMEWORKS):
             v = best(records, fw, arch, batch, "roofline_efficiency")
             if v is not None:
                 matrix[i, j] = v * 100  # percent
 
-    fig, ax = plt.subplots(figsize=(6.5, 4.5))
-    valid_vals = matrix[~np.isnan(matrix)]
-    vmax = min(valid_vals.max() * 1.2, 100) if len(valid_vals) > 0 else 100
+    fig, ax = plt.subplots(figsize=(max(6.5, len(FRAMEWORKS) * 1.8), max(4.5, len(archs) * 0.75)))
+    valid = matrix[~np.isnan(matrix)]
+    vmax = min(valid.max() * 1.2, 100.0) if valid.size > 0 else 100.0
     im = ax.imshow(matrix, cmap="YlOrRd", vmin=0, vmax=vmax)
     ax.set_xticks(range(len(FRAMEWORKS)))
     ax.set_xticklabels(FRAMEWORKS)
-    ax.set_yticks(range(len(ARCHS)))
-    ax.set_yticklabels(ARCHS)
+    ax.set_yticks(range(len(archs)))
+    ax.set_yticklabels(archs)
     plt.colorbar(im, ax=ax, label="Roofline Efficiency (%)")
     # Annotate cells
-    for i in range(len(ARCHS)):
+    for i in range(len(archs)):
         for j in range(len(FRAMEWORKS)):
             val = matrix[i, j]
             txt = f"{val:.1f}%" if not np.isnan(val) else "N/A"
-            ax.text(j, i, txt, ha="center", va="center", fontsize=10, fontweight="bold",
-                    color="black" if (np.isnan(val) or val < 60) else "white")
-    ax.set_title(f"Roofline Efficiency (%) — {hw['name']}\nbatch={batch}, optimised variants", fontweight="bold")
+            ax.text(
+                j,
+                i,
+                txt,
+                ha="center",
+                va="center",
+                fontsize=10,
+                fontweight="bold",
+                color="black" if (np.isnan(val) or val < 60) else "white",
+            )
+    ax.set_title(
+        f"Roofline Efficiency (%) — {hw['name']}\nbatch={batch}, optimised variants",
+        fontweight="bold",
+    )
     fig.tight_layout()
     out = FIG_DIR / "fig3_efficiency_heatmap.png"
     fig.savefig(out, bbox_inches="tight")
@@ -222,11 +313,15 @@ def fig_efficiency_heatmap(hw: dict, records: list[dict]) -> Path:
 # Figure 4: Latency vs batch size scaling (best variant)
 # ---------------------------------------------------------------------------
 
+
 def fig_batch_scaling(hw: dict, records: list[dict]) -> Path:
     batches = sorted({r["batch"] for r in records})
-    fig, axes = plt.subplots(1, len(ARCHS), figsize=(14, 4), sharey=False)
+    archs = get_active_architectures(records)
+    fig, axes = plt.subplots(1, len(archs), figsize=(max(14, len(archs) * 2.8), 4), sharey=False)
+    if len(archs) == 1:
+        axes = [axes]
 
-    for ax, arch in zip(axes, ARCHS):
+    for ax, arch in zip(axes, archs):
         for fw in FRAMEWORKS:
             ys = [best(records, fw, arch, b, "latency_median_ms") for b in batches]
             valid = [(b, y) for b, y in zip(batches, ys) if y is not None]
@@ -244,9 +339,14 @@ def fig_batch_scaling(hw: dict, records: list[dict]) -> Path:
     axes[0].set_ylabel("Median Latency (ms, log)")
     # Shared legend
     handles = [mpatches.Patch(color=FW_COLORS[f], label=f) for f in FRAMEWORKS]
-    fig.legend(handles=handles, loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.04), framealpha=0.9)
-    fig.suptitle(f"Latency Scaling with Batch Size — {hw['name']}  (optimised variants)",
-                 fontweight="bold", y=1.07)
+    fig.legend(
+        handles=handles, loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.04), framealpha=0.9
+    )
+    fig.suptitle(
+        f"Latency Scaling with Batch Size — {hw['name']}  (optimised variants)",
+        fontweight="bold",
+        y=1.07,
+    )
     fig.tight_layout()
     out = FIG_DIR / "fig4_batch_scaling.png"
     fig.savefig(out, bbox_inches="tight")
@@ -258,19 +358,22 @@ def fig_batch_scaling(hw: dict, records: list[dict]) -> Path:
 # Figure 5: Speedup from optimisation (baseline → jit/compiled/tf.function)
 # ---------------------------------------------------------------------------
 
-def fig_speedup(hw: dict, records: list[dict]) -> Path:
-    batch = rep_batch(records)
-    opt_map = {"PyTorch": "compiled", "JAX": "jit", "TensorFlow": "tf.function"}
-    fig, ax = plt.subplots(figsize=(10, 4.5))
 
-    x     = np.arange(len(ARCHS))
+def fig_speedup(hw: dict, records: list[dict], batch: int | None = None) -> Path:
+    if batch is None:
+        batch = get_reference_batch(records)
+    archs = get_active_architectures(records)
+    opt_map = {"PyTorch": "compiled", "JAX": "jit", "TensorFlow": "tf.function"}
+    fig, ax = plt.subplots(figsize=(max(10, len(archs) * 1.5), 4.5))
+
+    x = np.arange(len(archs))
     width = 0.25
     max_y = 1.0
 
     for i, fw in enumerate(FRAMEWORKS):
         opt = opt_map[fw]
         speedups = []
-        for arch in ARCHS:
+        for arch in archs:
             base = get(records, fw, "baseline", arch, batch, "latency_median_ms")
             fast = get(records, fw, opt, arch, batch, "latency_median_ms")
             if base and fast and fast > 0:
@@ -278,19 +381,33 @@ def fig_speedup(hw: dict, records: list[dict]) -> Path:
             else:
                 speedups.append(1.0)
         max_y = max(max_y, max(speedups))
-        bars = ax.bar(x + i * width, speedups, width * 0.88,
-                      label=f"{fw} ({opt})", color=FW_COLORS[fw], alpha=0.88)
+        bars = ax.bar(
+            x + i * width,
+            speedups,
+            width * 0.88,
+            label=f"{fw} ({opt})",
+            color=FW_COLORS[fw],
+            alpha=0.88,
+        )
         for bar, sp in zip(bars, speedups):
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.05,
-                    f"{sp:.1f}×", ha="center", va="bottom", fontsize=8)
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.05,
+                f"{sp:.1f}×",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
 
     ax.axhline(1.0, color="black", lw=1, ls="--", alpha=0.4, label="No speedup (1×)")
     ax.set_xticks(x + width)
-    ax.set_xticklabels(ARCHS)
+    ax.set_xticklabels(archs)
     ax.set_ylabel("Speedup over eager baseline (×)")
     ax.set_ylim(0, max_y * 1.25)
-    ax.set_title(f"Compilation Speedup (baseline → optimised)\n{hw['name']}  ·  batch={batch}",
-                 fontweight="bold")
+    ax.set_title(
+        f"Compilation Speedup (baseline → optimised)\n{hw['name']}  ·  batch={batch}",
+        fontweight="bold",
+    )
     ax.legend(framealpha=0.9)
     fig.tight_layout()
     out = FIG_DIR / "fig5_speedup.png"
@@ -303,24 +420,29 @@ def fig_speedup(hw: dict, records: list[dict]) -> Path:
 # Figure 6: Throughput (GFLOP/s) best variant
 # ---------------------------------------------------------------------------
 
-def fig_throughput(hw: dict, records: list[dict]) -> Path:
-    batch = rep_batch(records)
-    x     = np.arange(len(ARCHS))
+
+def fig_throughput(hw: dict, records: list[dict], batch: int | None = None) -> Path:
+    if batch is None:
+        batch = get_reference_batch(records)
+    archs = get_active_architectures(records)
+    x = np.arange(len(archs))
     width = 0.25
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(max(10, len(archs) * 1.5), 5))
 
     peak = hw["peak_flops"] / 1e9
     ax.axhline(peak, color="gray", lw=1.5, ls="--", alpha=0.7, label=f"Peak ({peak:.0f} GFLOP/s)")
 
     for i, fw in enumerate(FRAMEWORKS):
-        vals = [best(records, fw, arch, batch, "achieved_gflops") or 0 for arch in ARCHS]
+        vals = [best(records, fw, arch, batch, "achieved_gflops") or 0 for arch in archs]
         bars = ax.bar(x + i * width, vals, width * 0.88, label=fw, color=FW_COLORS[fw], alpha=0.88)
 
     ax.set_xticks(x + width)
-    ax.set_xticklabels(ARCHS)
+    ax.set_xticklabels(archs)
     ax.set_ylabel("Achieved Throughput (GFLOP/s)")
-    ax.set_title(f"Achieved Throughput by Architecture & Framework\n{hw['name']}  ·  batch={batch}",
-                 fontweight="bold")
+    ax.set_title(
+        f"Achieved Throughput by Architecture & Framework\n{hw['name']}  ·  batch={batch}",
+        fontweight="bold",
+    )
     ax.legend(framealpha=0.9)
     ax.set_ylim(bottom=0)
     fig.tight_layout()
@@ -334,31 +456,46 @@ def fig_throughput(hw: dict, records: list[dict]) -> Path:
 # Figure 7: CV (measurement noise) heatmap
 # ---------------------------------------------------------------------------
 
-def fig_cv_heatmap(hw: dict, records: list[dict]) -> Path:
-    batch = rep_batch(records)
-    matrix = np.full((len(ARCHS), len(FRAMEWORKS)), np.nan)
-    for i, arch in enumerate(ARCHS):
+
+def fig_cv_heatmap(hw: dict, records: list[dict], batch: int | None = None) -> Path:
+    if batch is None:
+        batch = get_reference_batch(records)
+    archs = get_active_architectures(records)
+    matrix = np.full((len(archs), len(FRAMEWORKS)), np.nan)
+    for i, arch in enumerate(archs):
         for j, fw in enumerate(FRAMEWORKS):
             v = best(records, fw, arch, batch, "latency_cv_pct")
             if v is not None:
                 matrix[i, j] = v
 
-    fig, ax = plt.subplots(figsize=(6.5, 4.5))
-    im = ax.imshow(matrix, cmap="Blues", vmin=0)
+    fig, ax = plt.subplots(figsize=(max(6.5, len(FRAMEWORKS) * 1.8), max(4.5, len(archs) * 0.75)))
+    valid = matrix[~np.isnan(matrix)]
+    vmax = valid.max() * 1.1 if valid.size > 0 else 10.0
+    im = ax.imshow(matrix, cmap="Blues", vmin=0, vmax=vmax)
     ax.set_xticks(range(len(FRAMEWORKS)))
     ax.set_xticklabels(FRAMEWORKS)
-    ax.set_yticks(range(len(ARCHS)))
-    ax.set_yticklabels(ARCHS)
+    ax.set_yticks(range(len(archs)))
+    ax.set_yticklabels(archs)
     plt.colorbar(im, ax=ax, label="Coefficient of Variation (%)")
-    valid_cv = matrix[~np.isnan(matrix)]
-    mean_cv = valid_cv.mean() if len(valid_cv) > 0 else 0
-    for i in range(len(ARCHS)):
+    mean_cv = valid.mean() if valid.size > 0 else 0.0
+    for i in range(len(archs)):
         for j in range(len(FRAMEWORKS)):
             val = matrix[i, j]
             txt = f"{val:.1f}%" if not np.isnan(val) else "N/A"
-            ax.text(j, i, txt, ha="center", va="center", fontsize=10, fontweight="bold",
-                    color="white" if (not np.isnan(val) and val > mean_cv) else "black")
-    ax.set_title(f"Measurement Noise (CV%) — {hw['name']}\nbatch={batch}, optimised variants", fontweight="bold")
+            ax.text(
+                j,
+                i,
+                txt,
+                ha="center",
+                va="center",
+                fontsize=10,
+                fontweight="bold",
+                color="white" if (not np.isnan(val) and val > mean_cv) else "black",
+            )
+    ax.set_title(
+        f"Measurement Noise (CV%) — {hw['name']}\nbatch={batch}, optimised variants",
+        fontweight="bold",
+    )
     fig.tight_layout()
     out = FIG_DIR / "fig7_cv_heatmap.png"
     fig.savefig(out, bbox_inches="tight")
@@ -370,17 +507,20 @@ def fig_cv_heatmap(hw: dict, records: list[dict]) -> Path:
 # Figure 8: Memory utilization and allocator overhead
 # ---------------------------------------------------------------------------
 
-def fig_memory_utilization(hw: dict, records: list[dict]) -> Path:
-    batch = rep_batch(records)
-    x = np.arange(len(ARCHS))
+
+def fig_memory_utilization(hw: dict, records: list[dict], batch: int | None = None) -> Path:
+    if batch is None:
+        batch = get_reference_batch(records)
+    archs = get_active_architectures(records)
+    x = np.arange(len(archs))
     width = 0.22
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(max(14, len(archs) * 2), 5))
 
     # Panel 1: Peak Allocated Memory vs Theoretical Bounds (MB, log scale)
     theo_mins = []
     theo_conss = []
-    for arch in ARCHS:
+    for arch in archs:
         t_min = get(records, "PyTorch", "baseline", arch, batch, "theoretical_min_bytes")
         t_cons = get(records, "PyTorch", "baseline", arch, batch, "theoretical_conservative_bytes")
         theo_mins.append((t_min or 0) / (1024 * 1024))
@@ -391,34 +531,58 @@ def fig_memory_utilization(hw: dict, records: list[dict]) -> Path:
 
     for i, fw in enumerate(FRAMEWORKS):
         allocs = []
-        for arch in ARCHS:
+        for arch in archs:
             val = best(records, fw, arch, batch, "peak_allocated_bytes")
             allocs.append((val or 0) / (1024 * 1024))
         if any(v > 0 for v in allocs):
-            ax1.bar(x + (i + 1) * width, allocs, width * 0.9, label=f"{fw} Peak Alloc", color=FW_COLORS[fw], alpha=0.85)
+            ax1.bar(
+                x + (i + 1) * width,
+                allocs,
+                width * 0.9,
+                label=f"{fw} Peak Alloc",
+                color=FW_COLORS[fw],
+                alpha=0.85,
+            )
 
     ax1.set_xticks(x + width / 2)
-    ax1.set_xticklabels(ARCHS)
+    ax1.set_xticklabels(archs)
     ax1.set_ylabel("Memory Footprint (MB, log scale)")
     ax1.set_yscale("log")
-    ax1.set_title(f"Peak Memory vs Theoretical Bounds\n{hw['name']}  ·  batch={batch}", fontweight="bold")
+    ax1.set_title(
+        f"Peak Memory vs Theoretical Bounds\n{hw['name']}  ·  batch={batch}", fontweight="bold"
+    )
     ax1.legend(framealpha=0.9, fontsize=8)
 
     # Panel 2: Memory Overhead Ratio & Allocator Reservation
     for i, fw in enumerate(FRAMEWORKS):
-        ratios = [best(records, fw, arch, batch, "memory_overhead_ratio") or 1.0 for arch in ARCHS]
+        ratios = [best(records, fw, arch, batch, "memory_overhead_ratio") or 1.0 for arch in archs]
         if any(r > 1.0 for r in ratios):
-            bars = ax2.bar(x + i * 0.35, ratios, 0.32, label=f"{fw} Overhead Ratio", color=FW_COLORS[fw], alpha=0.85)
+            bars = ax2.bar(
+                x + i * 0.35,
+                ratios,
+                0.32,
+                label=f"{fw} Overhead Ratio",
+                color=FW_COLORS[fw],
+                alpha=0.85,
+            )
             for bar, r in zip(bars, ratios):
                 if r > 0:
-                    ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.1,
-                             f"{r:.1f}×", ha="center", va="bottom", fontsize=8)
+                    ax2.text(
+                        bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 0.1,
+                        f"{r:.1f}×",
+                        ha="center",
+                        va="bottom",
+                        fontsize=8,
+                    )
 
     ax2.axhline(1.0, color="black", lw=1, ls="--", alpha=0.5, label="Theoretical Min (1.0×)")
     ax2.set_xticks(x + 0.18)
-    ax2.set_xticklabels(ARCHS)
+    ax2.set_xticklabels(archs)
     ax2.set_ylabel("Overhead Ratio (observed / theoretical_min)")
-    ax2.set_title(f"Dynamic Memory Overhead Ratio\n{hw['name']}  ·  batch={batch}", fontweight="bold")
+    ax2.set_title(
+        f"Dynamic Memory Overhead Ratio\n{hw['name']}  ·  batch={batch}", fontweight="bold"
+    )
     ax2.legend(framealpha=0.9, fontsize=8)
 
     fig.tight_layout()
@@ -432,6 +596,7 @@ def fig_memory_utilization(hw: dict, records: list[dict]) -> Path:
 # Build markdown report
 # ---------------------------------------------------------------------------
 
+
 def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> str:
     def rel(p: Path) -> str:
         return str(p.relative_to(REPO_ROOT))
@@ -440,18 +605,26 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
     batch32 = 32 if 32 in batches else batches[len(batches) // 2]
 
     def stat_table(batch: int) -> str:
-        rows = ["| Architecture | Framework | Variant | FLOPs | Params | AI (FLOP/B) | Latency med (ms) | ±σ | CV% | Efficiency | GFLOP/s | Bottleneck |",
-                "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        rows = [
+            "| Architecture | Framework | Variant | FLOPs | Params | AI (FLOP/B) | Latency med (ms) | ±σ | CV% | Efficiency | GFLOP/s | Bottleneck |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
+
         def fmt_n(n):
-            if n is None: return "—"
-            if n >= 1e9:  return f"{n/1e9:.2f}G"
-            if n >= 1e6:  return f"{n/1e6:.1f}M"
+            if n is None:
+                return "—"
+            if n >= 1e9:
+                return f"{n / 1e9:.2f}G"
+            if n >= 1e6:
+                return f"{n / 1e6:.1f}M"
             return f"{n:,.0f}"
 
         for arch in ARCHS:
             for fw in FRAMEWORKS:
                 for variant in ["baseline", "compiled", "jit", "tf.function"]:
-                    hits = select(records, framework=fw, variant=variant, architecture=arch, batch=batch)
+                    hits = select(
+                        records, framework=fw, variant=variant, architecture=arch, batch=batch
+                    )
                     if not hits:
                         continue
                     r = hits[0]
@@ -477,15 +650,33 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
         for arch in ARCHS:
             for fw in FRAMEWORKS:
                 for variant in ["baseline", "compiled", "jit", "tf.function"]:
-                    hits = select(records, framework=fw, variant=variant, architecture=arch, batch=batch)
+                    hits = select(
+                        records, framework=fw, variant=variant, architecture=arch, batch=batch
+                    )
                     if not hits:
                         continue
                     r = hits[0]
-                    fused_eff = f"{r['fused_efficiency']:.1%}" if r.get("fused_efficiency") is not None else "—"
-                    traffic = f"{r['traffic_reduction_pct']:.1f}%" if r.get("traffic_reduction_pct") is not None else "—"
-                    res = f"{r['cache_name']}" if r.get("cache_resident") and r.get("cache_name") else ("Yes" if r.get("cache_resident") else "DRAM")
+                    fused_eff = (
+                        f"{r['fused_efficiency']:.1%}"
+                        if r.get("fused_efficiency") is not None
+                        else "—"
+                    )
+                    traffic = (
+                        f"{r['traffic_reduction_pct']:.1f}%"
+                        if r.get("traffic_reduction_pct") is not None
+                        else "—"
+                    )
+                    res = (
+                        f"{r['cache_name']}"
+                        if r.get("cache_resident") and r.get("cache_name")
+                        else ("Yes" if r.get("cache_resident") else "DRAM")
+                    )
                     top_layer = r.get("top_layer_bottleneck") or "—"
-                    share = f"{r['top_layer_share_pct']:.1f}%" if r.get("top_layer_share_pct") is not None else "—"
+                    share = (
+                        f"{r['top_layer_share_pct']:.1f}%"
+                        if r.get("top_layer_share_pct") is not None
+                        else "—"
+                    )
                     rows.append(
                         f"| {arch} | {fw} | {variant} | {fused_eff} | {traffic} | {res} | {top_layer} | {share} |"
                     )
@@ -493,8 +684,10 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
 
     def speedup_table() -> str:
         opt_map = {"PyTorch": "compiled", "JAX": "jit", "TensorFlow": "tf.function"}
-        rows = ["| Architecture | PyTorch (compile) | JAX (jit) | TensorFlow (tf.function) |",
-                "|---|---|---|---|"]
+        rows = [
+            "| Architecture | PyTorch (compile) | JAX (jit) | TensorFlow (tf.function) |",
+            "|---|---|---|---|",
+        ]
         for arch in ARCHS:
             cells = [arch]
             for fw in FRAMEWORKS:
@@ -502,7 +695,7 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
                 base = get(records, fw, "baseline", arch, batch32, "latency_median_ms")
                 fast = get(records, fw, opt, arch, batch32, "latency_median_ms")
                 if base and fast and fast > 0:
-                    cells.append(f"**{base/fast:.2f}×** ({base:.2f}→{fast:.2f} ms)")
+                    cells.append(f"**{base / fast:.2f}×** ({base:.2f}→{fast:.2f} ms)")
                 else:
                     cells.append("—")
             rows.append("| " + " | ".join(cells) + " |")
@@ -518,7 +711,9 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
                 if ms and ms < best_ms:
                     best_ms, best_fw = ms, fw
             if best_fw:
-                lines.append(f"- **{arch}**: fastest framework is **{best_fw}** at {best_ms:.2f} ms (batch={batch32})")
+                lines.append(
+                    f"- **{arch}**: fastest framework is **{best_fw}** at {best_ms:.2f} ms (batch={batch32})"
+                )
         return "\n".join(lines)
 
     def memory_table(batch: int) -> str:
@@ -526,14 +721,18 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
             "| Architecture | Framework | Variant | Theo Min (KB) | Theo Cons (KB) | Peak Alloc (KB) | Peak Reserved (KB) | Overhead Ratio | Pool Caching |",
             "|---|---|---|---|---|---|---|---|---|",
         ]
+
         def fmt_kb(n):
-            if n is None: return "—"
+            if n is None:
+                return "—"
             return f"{n / 1024:,.1f}"
 
         for arch in ARCHS:
             for fw in FRAMEWORKS:
                 for variant in ["baseline", "compiled", "jit", "tf.function"]:
-                    hits = select(records, framework=fw, variant=variant, architecture=arch, batch=batch)
+                    hits = select(
+                        records, framework=fw, variant=variant, architecture=arch, batch=batch
+                    )
                     if not hits:
                         continue
                     r = hits[0]
@@ -546,7 +745,9 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
                     caching_str = "—"
                     if p_res is not None and p_alloc is not None and p_alloc > 0:
                         caching_ratio = p_res / p_alloc
-                        caching_str = f"{caching_ratio:.2f}×" if caching_ratio > 1.05 else "1.00× (minimal)"
+                        caching_str = (
+                            f"{caching_ratio:.2f}×" if caching_ratio > 1.05 else "1.00× (minimal)"
+                        )
                     rows.append(
                         f"| {arch} | {fw} | {variant} "
                         f"| {fmt_kb(t_min)} "
@@ -562,9 +763,9 @@ def build_report(hw: dict, records: list[dict], fig_paths: dict[str, Path]) -> s
 
     md = f"""# Neural-Cost Scientific Benchmark Report
 
-> **Device:** {hw['name']}  ·  **Peak FP32:** {hw['peak_flops']/1e12:.2f} TFLOP/s  
-> **Peak bandwidth:** {hw['memory_bandwidth']/1e9:.0f} GB/s (STREAM triad: {hw['measured_bw_gb_s']:.1f} GB/s)  
-> **Ridge point:** {ridge:.1f} FLOP/byte  ·  **Detection:** {hw['source']}  
+> **Device:** {hw["name"]}  ·  **Peak FP32:** {hw["peak_flops"] / 1e12:.2f} TFLOP/s  
+> **Peak bandwidth:** {hw["memory_bandwidth"] / 1e9:.0f} GB/s (STREAM triad: {hw["measured_bw_gb_s"]:.1f} GB/s)  
+> **Ridge point:** {ridge:.1f} FLOP/byte  ·  **Detection:** {hw["source"]}  
 
 ---
 
@@ -751,7 +952,7 @@ feedforward models but is less effective for recurrent models.
 ### 2. All workloads are memory-bound on CPU at these batch sizes
 
 The arithmetic intensity of all five architectures at batch=32 falls below the
-{ridge:.0f} FLOP/byte ridge point of the {hw['name']}.
+{ridge:.0f} FLOP/byte ridge point of the {hw["name"]}.
 To reach compute-bound territory, larger batches or larger hidden dimensions are needed.
 The roofline efficiency gap (observed efficiency typically 3–15%) is attributable to:
 - Python/framework dispatch overhead
@@ -768,7 +969,7 @@ frameworks are within 2–3× of each other after compilation.
 ### 4. Measurement reliability
 
 CV below 5% was achieved for all compiled variants at batch ≥ 8. The
-{hw['measured_bw_gb_s']:.1f} GB/s measured STREAM bandwidth (vs {hw['memory_bandwidth']/1e9:.0f} GB/s
+{hw["measured_bw_gb_s"]:.1f} GB/s measured STREAM bandwidth (vs {hw["memory_bandwidth"] / 1e9:.0f} GB/s
 published) reflects OS-level scheduling noise and shared memory pressure. For
 production benchmarking, repeat the sweep with exclusive CPU affinity and
 real model weights.
@@ -784,21 +985,25 @@ real model weights.
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     print(f"Loading data from {DATA_FILE}…")
     hw, records = load(DATA_FILE)
     print(f"  {len(records)} records  ·  {hw['name']}")
 
+    ref_batch = get_reference_batch(records)
+    print(f"  Reference batch: {ref_batch}")
+
     print("Generating figures…")
     fig_paths = {
-        "roofline":     fig_roofline(hw, records),
-        "latency_bars": fig_latency_bars(hw, records),
-        "heatmap":      fig_efficiency_heatmap(hw, records),
+        "roofline": fig_roofline(hw, records, batch=ref_batch),
+        "latency_bars": fig_latency_bars(hw, records, batch=ref_batch),
+        "heatmap": fig_efficiency_heatmap(hw, records, batch=ref_batch),
         "batch_scaling": fig_batch_scaling(hw, records),
-        "speedup":      fig_speedup(hw, records),
-        "throughput":   fig_throughput(hw, records),
-        "cv_heatmap":   fig_cv_heatmap(hw, records),
-        "memory":       fig_memory_utilization(hw, records),
+        "speedup": fig_speedup(hw, records, batch=ref_batch),
+        "throughput": fig_throughput(hw, records, batch=ref_batch),
+        "cv_heatmap": fig_cv_heatmap(hw, records, batch=ref_batch),
+        "memory": fig_memory_utilization(hw, records, batch=ref_batch),
     }
     for name, p in fig_paths.items():
         print(f"  {name}: {p}")

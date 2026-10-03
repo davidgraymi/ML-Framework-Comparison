@@ -15,7 +15,9 @@ from .api import estimate_model
 from .estimate import (
     CostEstimate,
     FusedCostEstimate,
+    estimate_conv2d,
     estimate_fused_operations,
+    estimate_operation,
     estimate_operations,
 )
 from .hardware import CacheSpec, HardwareSpec
@@ -46,9 +48,11 @@ __all__ = [
     "available_adapters",
     "benchmark",
     "detect_hardware",
+    "estimate_conv2d",
     "estimate_fused_operations",
     "estimate_memory",
     "estimate_model",
+    "estimate_operation",
     "estimate_operations",
     "get_adapter",
     "profile_model",

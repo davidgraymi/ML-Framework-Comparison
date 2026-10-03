@@ -61,13 +61,13 @@ from neural_cost.hardware_detect import detect_hardware
 # Config
 # ---------------------------------------------------------------------------
 
-EMBED_DIM   = 128
-NUM_HEADS   = 4
+EMBED_DIM = 128
+NUM_HEADS = 4
 NUM_CLASSES = 10
-IMG_SIZE    = 32
+IMG_SIZE = 32
 
 # GPU benefits most from larger batches (more parallelism).
-BATCH_SIZES       = [8, 32, 128, 512]
+BATCH_SIZES = [8, 32, 128, 512]
 QUICK_BATCH_SIZES = [32, 256]
 
 # Fine-grained grid for GPU-vs-CPU crossover analysis.
@@ -82,32 +82,34 @@ _CPU_DATA_FILE = Path(__file__).parent / "results" / "benchmark_data.json"
 # Result record (identical schema to CPU benchmark for easy comparison)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class BenchRecord:
-    framework:          str
-    variant:            str   # "baseline" | "compiled" | "jit" | "tf.function"
-    architecture:       str
-    batch:              int
-    device:             str   # "cuda:0" / "mps" / "cpu-fallback" / "gpu" / etc.
-    flops:              int
-    param_bytes:        int
-    total_bytes:        int
-    arith_intensity:    float
-    latency_median_ms:  float
-    latency_mean_ms:    float
-    latency_stddev_ms:  float
-    latency_cv_pct:     float
-    latency_p95_ms:     float
+    framework: str
+    variant: str  # "baseline" | "compiled" | "jit" | "tf.function"
+    architecture: str
+    batch: int
+    device: str  # "cuda:0" / "mps" / "cpu-fallback" / "gpu" / etc.
+    flops: int
+    param_bytes: int
+    total_bytes: int
+    arith_intensity: float
+    latency_median_ms: float
+    latency_mean_ms: float
+    latency_stddev_ms: float
+    latency_cv_pct: float
+    latency_p95_ms: float
     roofline_efficiency: float
-    achieved_gflops:    float
-    achieved_gbw:       float
-    bottleneck:         str
-    fused_efficiency:   float | None = None
+    achieved_gflops: float
+    achieved_gbw: float
+    bottleneck: str
+    scale: str = "standard"
+    fused_efficiency: float | None = None
     fused_lower_bound_ms: float | None = None
     traffic_reduction_pct: float | None = None
-    cache_resident:     bool = False
-    cache_name:         str | None = None
-    cache_bound_ms:     float | None = None
+    cache_resident: bool = False
+    cache_name: str | None = None
+    cache_bound_ms: float | None = None
     top_layer_bottleneck: str | None = None
     top_layer_share_pct: float | None = None
     peak_allocated_bytes: int | None = None
@@ -128,6 +130,7 @@ def _make_gpu_bench_record(
     st: dict[str, float],
     peak_alloc: int | None = None,
     peak_res: int | None = None,
+    scale: str = "standard",
 ) -> BenchRecord:
     fused_lb_ms = (
         round(gap.fused_lower_bound_seconds * 1e3, 3)
@@ -135,7 +138,9 @@ def _make_gpu_bench_record(
         else None
     )
     traffic_red_pct = None
-    if getattr(gap, "fused_lower_bound_seconds", None) is not None and getattr(prof, "operations", None):
+    if getattr(gap, "fused_lower_bound_seconds", None) is not None and getattr(
+        prof, "operations", None
+    ):
         fused_est = estimate_fused_operations(prof.operations)
         traffic_red_pct = round(fused_est.traffic_reduction_ratio * 100, 1)
 
@@ -182,6 +187,7 @@ def _make_gpu_bench_record(
         achieved_gflops=gap.achieved_flops / 1e9,
         achieved_gbw=gap.achieved_bandwidth / 1e9,
         bottleneck=gap.bottleneck,
+        scale=scale,
         fused_efficiency=getattr(gap, "fused_efficiency", None),
         fused_lower_bound_ms=fused_lb_ms,
         traffic_reduction_pct=traffic_red_pct,
@@ -202,6 +208,7 @@ def _make_gpu_bench_record(
 # Timing helpers
 # ---------------------------------------------------------------------------
 
+
 def _cuda_event_block(
     fn: Callable,
     args: tuple,
@@ -211,6 +218,7 @@ def _cuda_event_block(
 ) -> tuple[list[float], int | None, int | None]:
     """Use CUDA events for sub-millisecond GPU kernel timing and collect allocator telemetry."""
     import torch
+
     # Reset peak stats before run
     torch.cuda.reset_peak_memory_stats(device)
     # Warmup — lets CUDA driver warm up and torch.compile finish tracing.
@@ -221,7 +229,7 @@ def _cuda_event_block(
     samples: list[float] = []
     for _ in range(repeats):
         start = torch.cuda.Event(enable_timing=True)
-        end   = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
         start.record()
         fn(*args)
         end.record()
@@ -241,6 +249,7 @@ def _mps_block(
 ) -> tuple[list[float], int | None, int | None]:
     """Apple MPS has no CUDA events — use perf_counter with MPS sync and allocator telemetry."""
     import torch
+
     for _ in range(warmup):
         fn(*args)
     torch.mps.synchronize()
@@ -264,6 +273,7 @@ def _cpu_block(
     repeats: int,
 ) -> tuple[list[float], int | None, int | None]:
     import torch
+
     for _ in range(warmup):
         fn(*args)
     samples: list[float] = []
@@ -295,10 +305,12 @@ def _jax_block(
     fn: Callable, args: tuple, warmup: int, repeats: int
 ) -> tuple[list[float], int | None, int | None]:
     import jax
+
     def wait(v: Any) -> None:
         for leaf in jax.tree.leaves(v):
             if hasattr(leaf, "block_until_ready"):
                 leaf.block_until_ready()
+
     for _ in range(warmup):
         wait(fn(*args))
     samples: list[float] = []
@@ -333,16 +345,21 @@ def _tf_block(
     fn: Callable, args: tuple, warmup: int, repeats: int
 ) -> tuple[list[float], int | None, int | None]:
     import tensorflow as tf
+
     async_wait = getattr(tf.experimental, "async_wait", None)
+
     def wait():
         if async_wait:
             async_wait()
+
     for _ in range(warmup):
-        fn(*args); wait()
+        fn(*args)
+        wait()
     samples: list[float] = []
     for _ in range(repeats):
         t0 = time.perf_counter_ns()
-        fn(*args); wait()
+        fn(*args)
+        wait()
         samples.append((time.perf_counter_ns() - t0) / 1e6)
 
     peak_allocated = None
@@ -373,9 +390,9 @@ def _stats(samples: list[float]) -> dict[str, float]:
     s = sorted(samples)
     n = len(s)
     med = median(s)
-    mn  = mean(s)
-    sd  = stdev(s) if n > 1 else 0.0
-    cv  = 100 * sd / mn if mn > 0 else 0.0
+    mn = mean(s)
+    sd = stdev(s) if n > 1 else 0.0
+    cv = 100 * sd / mn if mn > 0 else 0.0
     p95 = s[min(int(0.95 * n), n - 1)]
     return dict(median=med, mean=mn, stddev=sd, cv=cv, p95=p95)
 
@@ -384,9 +401,11 @@ def _stats(samples: list[float]) -> dict[str, float]:
 # Detect best available torch device
 # ---------------------------------------------------------------------------
 
+
 def _detect_torch_device(requested: str | None) -> tuple[Any, str]:
     """Return (torch.device, device_label) for the best available GPU."""
     import torch
+
     if requested:
         dev = torch.device(requested)
         return dev, str(dev)
@@ -403,42 +422,63 @@ def _detect_torch_device(requested: str | None) -> tuple[Any, str]:
 # PyTorch GPU model builders
 # ---------------------------------------------------------------------------
 
+
 def _torch_ff_dnn(batch: int, device: Any):
     import torch
-    model = torch.nn.Sequential(
-        torch.nn.Linear(784, EMBED_DIM), torch.nn.ReLU(),
-        torch.nn.LayerNorm(EMBED_DIM),
-        torch.nn.Linear(EMBED_DIM, EMBED_DIM), torch.nn.ReLU(),
-        torch.nn.LayerNorm(EMBED_DIM),
-        torch.nn.Linear(EMBED_DIM, NUM_CLASSES),
-    ).eval().to(device)
+
+    model = (
+        torch.nn.Sequential(
+            torch.nn.Linear(784, EMBED_DIM),
+            torch.nn.ReLU(),
+            torch.nn.LayerNorm(EMBED_DIM),
+            torch.nn.Linear(EMBED_DIM, EMBED_DIM),
+            torch.nn.ReLU(),
+            torch.nn.LayerNorm(EMBED_DIM),
+            torch.nn.Linear(EMBED_DIM, NUM_CLASSES),
+        )
+        .eval()
+        .to(device)
+    )
     x = torch.randn(batch, 784, device=device)
     return model, (x,)
 
 
 def _torch_cnn(batch: int, device: Any):
     import torch
-    model = torch.nn.Sequential(
-        torch.nn.Conv2d(3, EMBED_DIM // 2, 3, padding=1), torch.nn.ReLU(),
-        torch.nn.BatchNorm2d(EMBED_DIM // 2), torch.nn.MaxPool2d(2),
-        torch.nn.Conv2d(EMBED_DIM // 2, EMBED_DIM, 3, padding=1), torch.nn.ReLU(),
-        torch.nn.BatchNorm2d(EMBED_DIM), torch.nn.AdaptiveAvgPool2d(1),
-        torch.nn.Flatten(), torch.nn.Linear(EMBED_DIM, NUM_CLASSES),
-    ).eval().to(device)
+
+    model = (
+        torch.nn.Sequential(
+            torch.nn.Conv2d(3, EMBED_DIM // 2, 3, padding=1),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(EMBED_DIM // 2),
+            torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(EMBED_DIM // 2, EMBED_DIM, 3, padding=1),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm2d(EMBED_DIM),
+            torch.nn.AdaptiveAvgPool2d(1),
+            torch.nn.Flatten(),
+            torch.nn.Linear(EMBED_DIM, NUM_CLASSES),
+        )
+        .eval()
+        .to(device)
+    )
     x = torch.randn(batch, 3, IMG_SIZE, IMG_SIZE, device=device)
     return model, (x,)
 
 
 def _torch_rnn(batch: int, device: Any):
     import torch
+
     class M(torch.nn.Module):
         def __init__(self):
             super().__init__()
             self.rnn = torch.nn.RNN(EMBED_DIM, EMBED_DIM, num_layers=2, batch_first=True)
-            self.fc  = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+            self.fc = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+
         def forward(self, x):
             out, _ = self.rnn(x)
             return self.fc(out[:, -1])
+
     m = M().eval().to(device)
     x = torch.randn(batch, 32, EMBED_DIM, device=device)
     return m, (x,)
@@ -446,14 +486,17 @@ def _torch_rnn(batch: int, device: Any):
 
 def _torch_lstm(batch: int, device: Any):
     import torch
+
     class M(torch.nn.Module):
         def __init__(self):
             super().__init__()
             self.lstm = torch.nn.LSTM(EMBED_DIM, EMBED_DIM, num_layers=2, batch_first=True)
-            self.fc   = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+            self.fc = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+
         def forward(self, x):
             out, _ = self.lstm(x)
             return self.fc(out[:, -1])
+
     m = M().eval().to(device)
     x = torch.randn(batch, 32, EMBED_DIM, device=device)
     return m, (x,)
@@ -461,20 +504,22 @@ def _torch_lstm(batch: int, device: Any):
 
 def _torch_transformer(batch: int, device: Any):
     import torch
+
     class M(torch.nn.Module):
         def __init__(self):
             super().__init__()
-            self.attn1  = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
+            self.attn1 = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
             self.norm1a = torch.nn.LayerNorm(EMBED_DIM)
-            self.ff1    = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
-            self.ff1b   = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
+            self.ff1 = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
+            self.ff1b = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
             self.norm1b = torch.nn.LayerNorm(EMBED_DIM)
-            self.attn2  = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
+            self.attn2 = torch.nn.MultiheadAttention(EMBED_DIM, NUM_HEADS, batch_first=False)
             self.norm2a = torch.nn.LayerNorm(EMBED_DIM)
-            self.ff2    = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
-            self.ff2b   = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
+            self.ff2 = torch.nn.Linear(EMBED_DIM, EMBED_DIM * 4)
+            self.ff2b = torch.nn.Linear(EMBED_DIM * 4, EMBED_DIM)
             self.norm2b = torch.nn.LayerNorm(EMBED_DIM)
-            self.head   = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+            self.head = torch.nn.Linear(EMBED_DIM, NUM_CLASSES)
+
         def forward(self, x):
             xt = x.permute(1, 0, 2)
             a1, _ = self.attn1(xt, xt, xt)
@@ -484,36 +529,43 @@ def _torch_transformer(batch: int, device: Any):
             xt = self.norm2a(xt + a2)
             xt = self.norm2b(xt + self.ff2b(torch.relu(self.ff2(xt))))
             return self.head(xt.mean(0))
+
     m = M().eval().to(device)
     x = torch.randn(batch, 32, EMBED_DIM, device=device)
     return m, (x,)
 
 
 TORCH_GPU_BUILDERS = {
-    "FF DNN":      _torch_ff_dnn,
-    "CNN":         _torch_cnn,
-    "RNN":         _torch_rnn,
-    "LSTM":        _torch_lstm,
+    "FF DNN": _torch_ff_dnn,
+    "CNN": _torch_cnn,
+    "RNN": _torch_rnn,
+    "LSTM": _torch_lstm,
     "Transformer": _torch_transformer,
 }
 
 ARCHITECTURES = ["FF DNN", "CNN", "RNN", "LSTM", "Transformer"]
-FRAMEWORKS    = ["PyTorch", "JAX", "TensorFlow"]
+FRAMEWORKS = ["PyTorch", "JAX", "TensorFlow"]
 
 
 # ---------------------------------------------------------------------------
 # JAX GPU model builders (identical math, jnp arrays on GPU device)
 # ---------------------------------------------------------------------------
 
+
 def _jax_ff_dnn_gpu(batch: int, jax_device: Any):
     import jax
     import jax.numpy as jnp
-    def _put(x): return jax.device_put(x, jax_device)
+
+    def _put(x):
+        return jax.device_put(x, jax_device)
+
     w1 = _put(jnp.ones((784, EMBED_DIM)))
     w2 = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
     w3 = _put(jnp.ones((EMBED_DIM, NUM_CLASSES)))
+
     def model(x, _w1=w1, _w2=w2, _w3=w3):
         return jnp.tanh(jnp.tanh(x @ _w1) @ _w2) @ _w3
+
     return model, (_put(jnp.ones((batch, 784))), w1, w2, w3)
 
 
@@ -521,42 +573,68 @@ def _jax_cnn_gpu(batch: int, jax_device: Any):
     import jax
     import jax.lax as lax
     import jax.numpy as jnp
-    def _put(x): return jax.device_put(x, jax_device)
-    k1  = _put(jnp.ones((EMBED_DIM // 2, 3, 3, 3)))
-    k2  = _put(jnp.ones((EMBED_DIM, EMBED_DIM // 2, 3, 3)))
+
+    def _put(x):
+        return jax.device_put(x, jax_device)
+
+    k1 = _put(jnp.ones((EMBED_DIM // 2, 3, 3, 3)))
+    k2 = _put(jnp.ones((EMBED_DIM, EMBED_DIM // 2, 3, 3)))
     wfc = _put(jnp.ones((EMBED_DIM, NUM_CLASSES)))
+
     def model(x, _k1=k1, _k2=k2, _wfc=wfc):
-        y = jnp.tanh(lax.conv_general_dilated(x, _k1, (1,1), "SAME", dimension_numbers=("NCHW","OIHW","NCHW")))
-        y = jnp.tanh(lax.conv_general_dilated(y, _k2, (2,2), "SAME", dimension_numbers=("NCHW","OIHW","NCHW")))
+        y = jnp.tanh(
+            lax.conv_general_dilated(
+                x, _k1, (1, 1), "SAME", dimension_numbers=("NCHW", "OIHW", "NCHW")
+            )
+        )
+        y = jnp.tanh(
+            lax.conv_general_dilated(
+                y, _k2, (2, 2), "SAME", dimension_numbers=("NCHW", "OIHW", "NCHW")
+            )
+        )
         return y.mean(axis=(2, 3)) @ _wfc
+
     return model, (_put(jnp.ones((batch, 3, IMG_SIZE, IMG_SIZE))), k1, k2, wfc)
 
 
 def _jax_rnn_gpu(batch: int, jax_device: Any):
     import jax
     import jax.numpy as jnp
+
     T = 32
-    def _put(x): return jax.device_put(x, jax_device)
+
+    def _put(x):
+        return jax.device_put(x, jax_device)
+
     wih = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
     whh = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
     wfc = _put(jnp.ones((EMBED_DIM, NUM_CLASSES)))
+
     def model(x, _wih=wih, _whh=whh, _wfc=wfc):
         h = jnp.zeros((x.shape[0], EMBED_DIM))
         for t in range(T):
             h = jnp.tanh(x[:, t] @ _wih + h @ _whh)
         return h @ _wfc
+
     return model, (_put(jnp.ones((batch, T, EMBED_DIM))), wih, whh, wfc)
 
 
 def _jax_lstm_gpu(batch: int, jax_device: Any):
     import jax
     import jax.numpy as jnp
+
     T, G = 32, 4
-    def _put(x): return jax.device_put(x, jax_device)
+
+    def _put(x):
+        return jax.device_put(x, jax_device)
+
     wih = _put(jnp.ones((EMBED_DIM, G * EMBED_DIM)))
     whh = _put(jnp.ones((EMBED_DIM, G * EMBED_DIM)))
     wfc = _put(jnp.ones((EMBED_DIM, NUM_CLASSES)))
-    def sigmoid(x): return 1.0 / (1.0 + jnp.exp(-x))
+
+    def sigmoid(x):
+        return 1.0 / (1.0 + jnp.exp(-x))
+
     def model(x, _wih=wih, _whh=whh, _wfc=wfc):
         h = jnp.zeros((x.shape[0], EMBED_DIM))
         c = jnp.zeros((x.shape[0], EMBED_DIM))
@@ -566,40 +644,48 @@ def _jax_lstm_gpu(batch: int, jax_device: Any):
             c = sigmoid(f) * c + sigmoid(i) * jnp.tanh(g)
             h = sigmoid(o) * jnp.tanh(c)
         return h @ _wfc
+
     return model, (_put(jnp.ones((batch, T, EMBED_DIM))), wih, whh, wfc)
 
 
 def _jax_transformer_gpu(batch: int, jax_device: Any):
     import jax
     import jax.numpy as jnp
-    T  = 32
+
+    T = 32
     hd = EMBED_DIM // NUM_HEADS
-    def _put(x): return jax.device_put(x, jax_device)
-    wq  = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
-    wk  = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
-    wv  = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
-    wo  = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
+
+    def _put(x):
+        return jax.device_put(x, jax_device)
+
+    wq = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
+    wk = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
+    wv = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
+    wo = _put(jnp.ones((EMBED_DIM, EMBED_DIM)))
     wf1 = _put(jnp.ones((EMBED_DIM, EMBED_DIM * 4)))
     wf2 = _put(jnp.ones((EMBED_DIM * 4, EMBED_DIM)))
     wfc = _put(jnp.ones((EMBED_DIM, NUM_CLASSES)))
-    scale = hd ** -0.5
+    scale = hd**-0.5
+
     def attn(x, wq_, wk_, wv_, wo_):
         q, k, v = x @ wq_, x @ wk_, x @ wv_
         s = (q * scale) @ k.transpose(0, 2, 1)
         w = jnp.exp(s) / jnp.exp(s).sum(-1, keepdims=True)
         return (w @ v) @ wo_
+
     def model(x, _wq=wq, _wk=wk, _wv=wv, _wo=wo, _wf1=wf1, _wf2=wf2, _wfc=wfc):
         x = x + attn(x, _wq, _wk, _wv, _wo)
         x = x + jnp.tanh(x @ _wf1) @ _wf2
         return x.mean(1) @ _wfc
+
     return model, (_put(jnp.ones((batch, T, EMBED_DIM))), wq, wk, wv, wo, wf1, wf2, wfc)
 
 
 JAX_GPU_BUILDERS = {
-    "FF DNN":      _jax_ff_dnn_gpu,
-    "CNN":         _jax_cnn_gpu,
-    "RNN":         _jax_rnn_gpu,
-    "LSTM":        _jax_lstm_gpu,
+    "FF DNN": _jax_ff_dnn_gpu,
+    "CNN": _jax_cnn_gpu,
+    "RNN": _jax_rnn_gpu,
+    "LSTM": _jax_lstm_gpu,
     "Transformer": _jax_transformer_gpu,
 }
 
@@ -608,16 +694,20 @@ JAX_GPU_BUILDERS = {
 # TensorFlow GPU model builders
 # ---------------------------------------------------------------------------
 
+
 def _tf_ff_dnn_gpu(batch: int, tf_device: str):
     import tensorflow as tf
+
     with tf.device(tf_device):
-        m = tf.keras.Sequential([
-            tf.keras.layers.Dense(EMBED_DIM, activation="relu"),
-            tf.keras.layers.LayerNormalization(),
-            tf.keras.layers.Dense(EMBED_DIM, activation="relu"),
-            tf.keras.layers.LayerNormalization(),
-            tf.keras.layers.Dense(NUM_CLASSES),
-        ])
+        m = tf.keras.Sequential(
+            [
+                tf.keras.layers.Dense(EMBED_DIM, activation="relu"),
+                tf.keras.layers.LayerNormalization(),
+                tf.keras.layers.Dense(EMBED_DIM, activation="relu"),
+                tf.keras.layers.LayerNormalization(),
+                tf.keras.layers.Dense(NUM_CLASSES),
+            ]
+        )
         x = tf.ones((batch, 784))
         m(x)
     return m, (x,)
@@ -625,16 +715,19 @@ def _tf_ff_dnn_gpu(batch: int, tf_device: str):
 
 def _tf_cnn_gpu(batch: int, tf_device: str):
     import tensorflow as tf
+
     with tf.device(tf_device):
-        m = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(EMBED_DIM // 2, 3, padding="same", activation="relu"),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.MaxPooling2D(2),
-            tf.keras.layers.Conv2D(EMBED_DIM, 3, padding="same", activation="relu"),
-            tf.keras.layers.BatchNormalization(),
-            tf.keras.layers.GlobalAveragePooling2D(),
-            tf.keras.layers.Dense(NUM_CLASSES),
-        ])
+        m = tf.keras.Sequential(
+            [
+                tf.keras.layers.Conv2D(EMBED_DIM // 2, 3, padding="same", activation="relu"),
+                tf.keras.layers.BatchNormalization(),
+                tf.keras.layers.MaxPooling2D(2),
+                tf.keras.layers.Conv2D(EMBED_DIM, 3, padding="same", activation="relu"),
+                tf.keras.layers.BatchNormalization(),
+                tf.keras.layers.GlobalAveragePooling2D(),
+                tf.keras.layers.Dense(NUM_CLASSES),
+            ]
+        )
         x = tf.ones((batch, IMG_SIZE, IMG_SIZE, 3))
         m(x)
     return m, (x,)
@@ -642,57 +735,64 @@ def _tf_cnn_gpu(batch: int, tf_device: str):
 
 def _tf_rnn_gpu(batch: int, tf_device: str):
     import tensorflow as tf
+
     with tf.device(tf_device):
         inp = tf.keras.layers.Input(shape=(32, EMBED_DIM))
-        x   = tf.keras.layers.GRU(EMBED_DIM, return_sequences=True)(inp)
-        x   = tf.keras.layers.GRU(EMBED_DIM)(x)
+        x = tf.keras.layers.GRU(EMBED_DIM, return_sequences=True)(inp)
+        x = tf.keras.layers.GRU(EMBED_DIM)(x)
         out = tf.keras.layers.Dense(NUM_CLASSES)(x)
-        m   = tf.keras.Model(inp, out)
-        xi  = tf.ones((batch, 32, EMBED_DIM))
+        m = tf.keras.Model(inp, out)
+        xi = tf.ones((batch, 32, EMBED_DIM))
         m(xi)
     return m, (xi,)
 
 
 def _tf_lstm_gpu(batch: int, tf_device: str):
     import tensorflow as tf
+
     with tf.device(tf_device):
         inp = tf.keras.layers.Input(shape=(32, EMBED_DIM))
-        x   = tf.keras.layers.LSTM(EMBED_DIM, return_sequences=True)(inp)
-        x   = tf.keras.layers.LSTM(EMBED_DIM)(x)
+        x = tf.keras.layers.LSTM(EMBED_DIM, return_sequences=True)(inp)
+        x = tf.keras.layers.LSTM(EMBED_DIM)(x)
         out = tf.keras.layers.Dense(NUM_CLASSES)(x)
-        m   = tf.keras.Model(inp, out)
-        xi  = tf.ones((batch, 32, EMBED_DIM))
+        m = tf.keras.Model(inp, out)
+        xi = tf.ones((batch, 32, EMBED_DIM))
         m(xi)
     return m, (xi,)
 
 
 def _tf_transformer_gpu(batch: int, tf_device: str):
     import tensorflow as tf
+
     with tf.device(tf_device):
         inp = tf.keras.layers.Input(shape=(32, EMBED_DIM))
-        x   = tf.keras.layers.MultiHeadAttention(num_heads=NUM_HEADS, key_dim=EMBED_DIM // NUM_HEADS)(inp, inp)
-        x   = tf.keras.layers.LayerNormalization()(inp + x)
-        ff  = tf.keras.layers.Dense(EMBED_DIM * 4, activation="relu")(x)
-        ff  = tf.keras.layers.Dense(EMBED_DIM)(ff)
-        x   = tf.keras.layers.LayerNormalization()(x + ff)
-        x2  = tf.keras.layers.MultiHeadAttention(num_heads=NUM_HEADS, key_dim=EMBED_DIM // NUM_HEADS)(x, x)
-        x2  = tf.keras.layers.LayerNormalization()(x + x2)
+        x = tf.keras.layers.MultiHeadAttention(num_heads=NUM_HEADS, key_dim=EMBED_DIM // NUM_HEADS)(
+            inp, inp
+        )
+        x = tf.keras.layers.LayerNormalization()(inp + x)
+        ff = tf.keras.layers.Dense(EMBED_DIM * 4, activation="relu")(x)
+        ff = tf.keras.layers.Dense(EMBED_DIM)(ff)
+        x = tf.keras.layers.LayerNormalization()(x + ff)
+        x2 = tf.keras.layers.MultiHeadAttention(
+            num_heads=NUM_HEADS, key_dim=EMBED_DIM // NUM_HEADS
+        )(x, x)
+        x2 = tf.keras.layers.LayerNormalization()(x + x2)
         ff2 = tf.keras.layers.Dense(EMBED_DIM * 4, activation="relu")(x2)
         ff2 = tf.keras.layers.Dense(EMBED_DIM)(ff2)
-        x2  = tf.keras.layers.LayerNormalization()(x2 + ff2)
-        p   = tf.keras.layers.GlobalAveragePooling1D()(x2)
+        x2 = tf.keras.layers.LayerNormalization()(x2 + ff2)
+        p = tf.keras.layers.GlobalAveragePooling1D()(x2)
         out = tf.keras.layers.Dense(NUM_CLASSES)(p)
-        m   = tf.keras.Model(inp, out)
-        xi  = tf.ones((batch, 32, EMBED_DIM))
+        m = tf.keras.Model(inp, out)
+        xi = tf.ones((batch, 32, EMBED_DIM))
         m(xi)
     return m, (xi,)
 
 
 TF_GPU_BUILDERS = {
-    "FF DNN":      _tf_ff_dnn_gpu,
-    "CNN":         _tf_cnn_gpu,
-    "RNN":         _tf_rnn_gpu,
-    "LSTM":        _tf_lstm_gpu,
+    "FF DNN": _tf_ff_dnn_gpu,
+    "CNN": _tf_cnn_gpu,
+    "RNN": _tf_rnn_gpu,
+    "LSTM": _tf_lstm_gpu,
     "Transformer": _tf_transformer_gpu,
 }
 
@@ -701,10 +801,12 @@ TF_GPU_BUILDERS = {
 # GPU device detection helpers
 # ---------------------------------------------------------------------------
 
+
 def _detect_jax_gpu() -> tuple[Any | None, str]:
     """Return (jax.Device, label) for the first available GPU/accelerator."""
     try:
         import jax
+
         # Try GPU first, then TPU, fall back to CPU
         for backend in ("gpu", "tpu", "cpu"):
             try:
@@ -723,6 +825,7 @@ def _detect_tf_gpu() -> tuple[str, str]:
     """Return (tf_device_str, label) for the first available GPU."""
     try:
         import tensorflow as tf
+
         gpus = tf.config.list_physical_devices("GPU")
         if gpus:
             return "/GPU:0", f"GPU:0 ({gpus[0].name})"
@@ -734,6 +837,7 @@ def _detect_tf_gpu() -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 # Per-framework GPU evaluation
 # ---------------------------------------------------------------------------
+
 
 def _make_gap(
     cost: Any,
@@ -781,7 +885,7 @@ def eval_torch_gpu(
     records: list[BenchRecord] = []
 
     is_cuda = str(torch_device).startswith("cuda")
-    is_mps  = str(torch_device) == "mps"
+    is_mps = str(torch_device) == "mps"
 
     for arch in ARCHITECTURES:
         for batch in batches:
@@ -813,11 +917,27 @@ def eval_torch_gpu(
             # Baseline (eager GPU)
             try:
                 samp, peak_alloc, peak_res = _time(model, inputs)
-                st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
+                st = _stats(samp)
+                gap = _make_gap(
+                    cost,
+                    st,
+                    hardware,
+                    operations=prof.operations,
+                    peak_alloc=peak_alloc,
+                    peak_res=peak_res,
+                )
                 records.append(
                     _make_gpu_bench_record(
-                        "PyTorch", "baseline", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
+                        "PyTorch",
+                        "baseline",
+                        arch,
+                        batch,
+                        device_label,
+                        prof,
+                        gap,
+                        st,
+                        peak_alloc,
+                        peak_res,
                     )
                 )
             except Exception as exc:
@@ -839,11 +959,27 @@ def eval_torch_gpu(
                     for _ in range(max(3, warmup)):
                         compiled(*inputs)
                 samp, peak_alloc, peak_res = _time(compiled, inputs)
-                st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
+                st = _stats(samp)
+                gap = _make_gap(
+                    cost,
+                    st,
+                    hardware,
+                    operations=prof.operations,
+                    peak_alloc=peak_alloc,
+                    peak_res=peak_res,
+                )
                 records.append(
                     _make_gpu_bench_record(
-                        "PyTorch", "compiled", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
+                        "PyTorch",
+                        "compiled",
+                        arch,
+                        batch,
+                        device_label,
+                        prof,
+                        gap,
+                        st,
+                        peak_alloc,
+                        peak_res,
                     )
                 )
             except Exception as exc:
@@ -861,6 +997,7 @@ def eval_jax_gpu(
     device_label: str,
 ) -> list[BenchRecord]:
     import jax
+
     adapter = JaxAdapter()
     records: list[BenchRecord] = []
 
@@ -875,12 +1012,11 @@ def eval_jax_gpu(
             # Static profile uses CPU-side JAX adapter (shape-only)
             try:
                 import jax.numpy as jnp
-                cpu_model, cpu_inputs = JAX_GPU_BUILDERS[arch](
-                    batch, jax.devices("cpu")[0]
-                )
+
+                cpu_model, cpu_inputs = JAX_GPU_BUILDERS[arch](batch, jax.devices("cpu")[0])
                 prof = profile_model(cpu_model, cpu_inputs, adapter)
                 cost = prof.cost
-                mem  = prof.memory
+                mem = prof.memory
             except Exception:
                 continue
 
@@ -890,11 +1026,27 @@ def eval_jax_gpu(
             # Baseline (eager on GPU device)
             try:
                 samp, peak_alloc, peak_res = _jax_block(model, inputs, warmup, repeats)
-                st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
+                st = _stats(samp)
+                gap = _make_gap(
+                    cost,
+                    st,
+                    hardware,
+                    operations=prof.operations,
+                    peak_alloc=peak_alloc,
+                    peak_res=peak_res,
+                )
                 records.append(
                     _make_gpu_bench_record(
-                        "JAX", "baseline", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
+                        "JAX",
+                        "baseline",
+                        arch,
+                        batch,
+                        device_label,
+                        prof,
+                        gap,
+                        st,
+                        peak_alloc,
+                        peak_res,
                     )
                 )
             except Exception as exc:
@@ -911,8 +1063,15 @@ def eval_jax_gpu(
                 ]
                 wait(jit_model(*inputs))
                 samp, peak_alloc, peak_res = _jax_block(jit_model, inputs, warmup, repeats)
-                st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
+                st = _stats(samp)
+                gap = _make_gap(
+                    cost,
+                    st,
+                    hardware,
+                    operations=prof.operations,
+                    peak_alloc=peak_alloc,
+                    peak_res=peak_res,
+                )
                 records.append(
                     _make_gpu_bench_record(
                         "JAX", "jit", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
@@ -933,6 +1092,7 @@ def eval_tensorflow_gpu(
     device_label: str,
 ) -> list[BenchRecord]:
     import tensorflow as tf
+
     adapter = TensorFlowAdapter()
     records: list[BenchRecord] = []
 
@@ -957,11 +1117,27 @@ def eval_tensorflow_gpu(
             # Baseline (eager GPU)
             try:
                 samp, peak_alloc, peak_res = _tf_block(fn, inputs, warmup, repeats)
-                st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
+                st = _stats(samp)
+                gap = _make_gap(
+                    cost,
+                    st,
+                    hardware,
+                    operations=prof.operations,
+                    peak_alloc=peak_alloc,
+                    peak_res=peak_res,
+                )
                 records.append(
                     _make_gpu_bench_record(
-                        "TensorFlow", "baseline", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
+                        "TensorFlow",
+                        "baseline",
+                        arch,
+                        batch,
+                        device_label,
+                        prof,
+                        gap,
+                        st,
+                        peak_alloc,
+                        peak_res,
                     )
                 )
             except Exception as exc:
@@ -974,11 +1150,27 @@ def eval_tensorflow_gpu(
                 for _ in range(3):
                     tf_fn(*inputs)
                 samp, peak_alloc, peak_res = _tf_block(tf_fn, inputs, warmup, repeats)
-                st   = _stats(samp)
-                gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
+                st = _stats(samp)
+                gap = _make_gap(
+                    cost,
+                    st,
+                    hardware,
+                    operations=prof.operations,
+                    peak_alloc=peak_alloc,
+                    peak_res=peak_res,
+                )
                 records.append(
                     _make_gpu_bench_record(
-                        "TensorFlow", "tf.function+XLA", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
+                        "TensorFlow",
+                        "tf.function+XLA",
+                        arch,
+                        batch,
+                        device_label,
+                        prof,
+                        gap,
+                        st,
+                        peak_alloc,
+                        peak_res,
                     )
                 )
             except Exception as exc:
@@ -988,11 +1180,27 @@ def eval_tensorflow_gpu(
                     for _ in range(3):
                         tf_fn(*inputs)
                     samp, peak_alloc, peak_res = _tf_block(tf_fn, inputs, warmup, repeats)
-                    st   = _stats(samp)
-                    gap  = _make_gap(cost, st, hardware, operations=prof.operations, peak_alloc=peak_alloc, peak_res=peak_res)
+                    st = _stats(samp)
+                    gap = _make_gap(
+                        cost,
+                        st,
+                        hardware,
+                        operations=prof.operations,
+                        peak_alloc=peak_alloc,
+                        peak_res=peak_res,
+                    )
                     records.append(
                         _make_gpu_bench_record(
-                            "TensorFlow", "tf.function", arch, batch, device_label, prof, gap, st, peak_alloc, peak_res
+                            "TensorFlow",
+                            "tf.function",
+                            arch,
+                            batch,
+                            device_label,
+                            prof,
+                            gap,
+                            st,
+                            peak_alloc,
+                            peak_res,
                         )
                     )
                 except Exception as exc2:
@@ -1004,6 +1212,7 @@ def eval_tensorflow_gpu(
 # ---------------------------------------------------------------------------
 # JAX MPS / Metal driver diagnostics
 # ---------------------------------------------------------------------------
+
 
 def _check_jax_mps_driver() -> None:
     """Warn clearly when JAX is running on CPU instead of Apple Silicon GPU.
@@ -1027,7 +1236,7 @@ def _check_jax_mps_driver() -> None:
 
         # JAX is on CPU: check whether a Metal/MPS plugin is installed at all.
         has_jax_metal = importlib.util.find_spec("jax_metal") is not None
-        has_jax_mps   = importlib.util.find_spec("jax_mps") is not None
+        has_jax_mps = importlib.util.find_spec("jax_mps") is not None
 
         print()
         print("  ╔══════════════════════════════════════════════════════════════╗")
@@ -1056,6 +1265,7 @@ def _check_jax_mps_driver() -> None:
 # CUDA quality-of-life setup
 # ---------------------------------------------------------------------------
 
+
 def _configure_cuda_for_benchmark(device: Any) -> None:
     """Enable TF32 and cuDNN benchmark mode for realistic throughput numbers.
 
@@ -1064,6 +1274,7 @@ def _configure_cuda_for_benchmark(device: Any) -> None:
     """
     try:
         import torch
+
         if not str(device).startswith("cuda") or not torch.cuda.is_available():
             return
         # TF32 matmul (enabled by default since PyTorch 1.11, but be explicit)
@@ -1073,8 +1284,10 @@ def _configure_cuda_for_benchmark(device: Any) -> None:
         # on the first run and caches it.  Adds ~30 s to the first iteration
         # (already covered by our warmup) but improves steady-state throughput.
         torch.backends.cudnn.benchmark = True
-        print(f"  CUDA TF32={torch.backends.cuda.matmul.allow_tf32}  "
-              f"cuDNN-benchmark={torch.backends.cudnn.benchmark}")
+        print(
+            f"  CUDA TF32={torch.backends.cuda.matmul.allow_tf32}  "
+            f"cuDNN-benchmark={torch.backends.cudnn.benchmark}"
+        )
     except Exception:
         pass
 
@@ -1082,6 +1295,7 @@ def _configure_cuda_for_benchmark(device: Any) -> None:
 # ---------------------------------------------------------------------------
 # GPU-vs-CPU crossover analysis
 # ---------------------------------------------------------------------------
+
 
 def _load_cpu_latencies() -> dict[tuple[str, str, int], float] | None:
     """Load CPU benchmark results from the companion JSON file, if present.
@@ -1132,31 +1346,30 @@ def compute_crossover(
         for arch in ARCHITECTURES:
             # Collect GPU data points (best variant, sorted by batch)
             gpu_recs = sorted(
-                [r for r in gpu_records
-                 if r.framework == fw and r.architecture == arch],
+                [r for r in gpu_records if r.framework == fw and r.architecture == arch],
                 key=lambda r: r.batch,
             )
             points = []
             for r in gpu_recs:
                 cpu_ms = cpu_latencies.get((fw, arch, r.batch))
                 gpu_faster = (cpu_ms is not None) and (r.latency_median_ms < cpu_ms)
-                points.append({
-                    "batch":      r.batch,
-                    "gpu_ms":     r.latency_median_ms,
-                    "cpu_ms":     cpu_ms,
-                    "gpu_faster": gpu_faster,
-                    "variant":    r.variant,
-                })
+                points.append(
+                    {
+                        "batch": r.batch,
+                        "gpu_ms": r.latency_median_ms,
+                        "cpu_ms": cpu_ms,
+                        "gpu_faster": gpu_faster,
+                        "variant": r.variant,
+                    }
+                )
 
             # Find the first batch at which GPU beats CPU
-            crossover_batch = next(
-                (pt["batch"] for pt in points if pt["gpu_faster"]), None
-            )
+            crossover_batch = next((pt["batch"] for pt in points if pt["gpu_faster"]), None)
 
             result[fw][arch] = {
                 "crossover_batch": crossover_batch,
-                "gpu_wins_any":    crossover_batch is not None,
-                "data":            points,
+                "gpu_wins_any": crossover_batch is not None,
+                "data": points,
             }
     return result
 
@@ -1174,8 +1387,8 @@ def print_crossover_table(crossover: dict) -> None:
     for fw in FRAMEWORKS:
         for arch in ARCHITECTURES:
             info = crossover.get(fw, {}).get(arch, {})
-            cb   = info.get("crossover_batch")
-            tag  = f"≥ batch={cb}" if cb else "never"
+            cb = info.get("crossover_batch")
+            tag = f"≥ batch={cb}" if cb else "never"
             note = ""
             if cb:
                 pt = next((p for p in info.get("data", []) if p["batch"] == cb), None)
@@ -1191,24 +1404,49 @@ def print_crossover_table(crossover: dict) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--quick",  action="store_true", help="Fewer batches/repeats for fast iteration")
-    parser.add_argument("--warmup",  type=int, default=15)
-    parser.add_argument("--repeats", type=int, default=40)
-    parser.add_argument("--device",  type=str, default=None,
-                        help="PyTorch device override: 'cuda', 'cuda:1', 'mps', 'cpu'")
-    parser.add_argument("--peak-flops",       type=float, default=None,
-                        help="Override peak FLOP/s (e.g. 312e12 for A100)")
-    parser.add_argument("--memory-bandwidth", type=float, default=None,
-                        help="Override memory bandwidth in bytes/s (e.g. 2.0e12 for A100)")
     parser.add_argument(
-        "--crossover", action="store_true",
+        "--quick", action="store_true", help="Fewer batches/repeats for fast iteration"
+    )
+    parser.add_argument("--warmup", type=int, default=15)
+    parser.add_argument("--repeats", type=int, default=40)
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="PyTorch device override: 'cuda', 'cuda:1', 'mps', 'cpu'",
+    )
+    parser.add_argument(
+        "--peak-flops", type=float, default=None, help="Override peak FLOP/s (e.g. 312e12 for A100)"
+    )
+    parser.add_argument(
+        "--memory-bandwidth",
+        type=float,
+        default=None,
+        help="Override memory bandwidth in bytes/s (e.g. 2.0e12 for A100)",
+    )
+    parser.add_argument(
+        "--crossover",
+        action="store_true",
         help=(
             "Sweep a fine batch-size grid (1..1024) to find where each architecture "
             "first runs faster on GPU than on CPU.  Reads CPU baseline from "
             "benchmarks/results/benchmark_data.json if present."
         ),
+    )
+    parser.add_argument(
+        "--scale",
+        choices=["micro", "standard", "production"],
+        default="standard",
+        help="Model scale tier (default: standard)",
+    )
+    parser.add_argument(
+        "--include-legacy",
+        action="store_true",
+        default=False,
+        help="Include legacy recurrent architectures (RNN, LSTM)",
     )
     parser.add_argument(
         "--no-fx",
@@ -1217,7 +1455,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    warmup  = 5  if args.quick else args.warmup
+    warmup = 5 if args.quick else args.warmup
     repeats = 15 if args.quick else args.repeats
     if args.crossover:
         batches = CROSSOVER_BATCH_SIZES
@@ -1237,10 +1475,11 @@ def main() -> None:
     # Attempt to read better GPU specs from nvidia-smi / torch.cuda
     gpu_name = hardware.name
     peak_flops = hardware.peak_flops
-    mem_bw     = hardware.memory_bandwidth
+    mem_bw = hardware.memory_bandwidth
 
     if importlib.util.find_spec("torch") is not None:
         import torch
+
         torch_dev, torch_label = _detect_torch_device(args.device)
         if str(torch_dev).startswith("cuda") and torch.cuda.is_available():
             props = torch.cuda.get_device_properties(torch_dev)
@@ -1248,16 +1487,18 @@ def main() -> None:
             # SM count × 128 CUDA cores/SM (Ampere) × 2 FP32 ops/clock × clock Hz
             # This is an approximation; --peak-flops can override.
             clock_hz = props.max_clock_rate * 1000  # kHz → Hz
-            n_sm     = props.multi_processor_count
+            n_sm = props.multi_processor_count
             peak_flops = n_sm * 128 * 2 * clock_hz
-            mem_bw     = props.memory_bandwidth  # bytes/s (PyTorch 2.x)
+            mem_bw = props.memory_bandwidth  # bytes/s (PyTorch 2.x)
             print(f"  GPU detected: {gpu_name}")
-            print(f"  SMs={n_sm}  clock={clock_hz/1e9:.2f} GHz  "
-                  f"est. peak={peak_flops/1e12:.1f} TFLOP/s  "
-                  f"bw={mem_bw/1e9:.0f} GB/s")
+            print(
+                f"  SMs={n_sm}  clock={clock_hz / 1e9:.2f} GHz  "
+                f"est. peak={peak_flops / 1e12:.1f} TFLOP/s  "
+                f"bw={mem_bw / 1e9:.0f} GB/s"
+            )
             _configure_cuda_for_benchmark(torch_dev)
         elif str(torch_dev) == "mps":
-            gpu_name  = torch_label
+            gpu_name = torch_label
             # Apple Silicon — use detected values (chip table has GPU specs)
             print(f"  Device: {torch_label}")
         else:
@@ -1277,17 +1518,19 @@ def main() -> None:
     gpu_hardware = HardwareSpec(gpu_name, peak_flops, mem_bw, caches=hardware.caches)
 
     hw_meta = {
-        "name":               gpu_hardware.name,
-        "peak_flops":         gpu_hardware.peak_flops,
-        "memory_bandwidth":   gpu_hardware.memory_bandwidth,
-        "ridge_point":        gpu_hardware.ridge_point,
-        "source":             detection.source,
-        "measured_bw_gb_s":   detection.measured_bandwidth_gb_s,
-        "torch_device":       torch_label,
+        "name": gpu_hardware.name,
+        "peak_flops": gpu_hardware.peak_flops,
+        "memory_bandwidth": gpu_hardware.memory_bandwidth,
+        "ridge_point": gpu_hardware.ridge_point,
+        "source": detection.source,
+        "measured_bw_gb_s": detection.measured_bandwidth_gb_s,
+        "torch_device": torch_label,
     }
-    print(f"\n  {gpu_hardware.name}  "
-          f"{gpu_hardware.peak_flops/1e12:.2f} TFLOP/s  "
-          f"{gpu_hardware.memory_bandwidth/1e9:.0f} GB/s")
+    print(
+        f"\n  {gpu_hardware.name}  "
+        f"{gpu_hardware.peak_flops / 1e12:.2f} TFLOP/s  "
+        f"{gpu_hardware.memory_bandwidth / 1e9:.0f} GB/s"
+    )
     print(f"  Batches={batches}  warmup={warmup}  repeats={repeats}\n")
 
     all_records: list[BenchRecord] = []
@@ -1342,7 +1585,7 @@ def main() -> None:
     else:
         print("[skip] TensorFlow not installed")
 
-    out_dir  = Path(__file__).parent / "results"
+    out_dir = Path(__file__).parent / "results"
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / "benchmark_gpu_data.json"
     payload: dict = {"hardware": hw_meta, "records": [asdict(r) for r in all_records]}
@@ -1368,4 +1611,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
