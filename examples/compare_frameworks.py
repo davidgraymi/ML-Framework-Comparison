@@ -2,7 +2,8 @@
 
 Run after installing one or more framework extras, for example:
 
-    pip install -e '.[torch,jax,tensorflow]'
+    pip install "neural-cost[torch,jax,tensorflow]"
+    # Or from local source: pip install -e '.[torch,jax,tensorflow]'
     python examples/compare_frameworks.py
 
 Hardware is auto-detected by default (Apple Silicon table + NumPy STREAM

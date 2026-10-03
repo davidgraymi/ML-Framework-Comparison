@@ -1,18 +1,56 @@
 # neural-cost
 
+[![PyPI - Version](https://img.shields.io/pypi/v/neural-cost.svg?logo=pypi&label=PyPI&logoColor=gold)](https://pypi.org/project/neural-cost/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/neural-cost.svg?logo=python&logoColor=white)](https://pypi.org/project/neural-cost/)
+[![CI](https://github.com/davidgraymi/neural-cost/actions/workflows/ci.yml/badge.svg)](https://github.com/davidgraymi/neural-cost/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/neural-cost.svg?color=blue&label=Downloads)](https://pypi.org/project/neural-cost/)
+[![Code style: Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
+[**PyPI Package**](https://pypi.org/project/neural-cost/) • [**Documentation**](https://github.com/davidgraymi/neural-cost#readme) • [**Issue Tracker**](https://github.com/davidgraymi/neural-cost/issues) • [**Releases**](https://github.com/davidgraymi/neural-cost/releases)
+
 `neural-cost` estimates a neural network's useful compute and compulsory tensor
 traffic, measures its runtime, and uses a roofline lower bound to highlight
 likely optimization opportunities.  It is intentionally framework-neutral at
 its core: PyTorch, TensorFlow, and JAX are optional adapters rather than base
 dependencies.
 
-## Install
+## Installation
+
+Install the core package from [PyPI](https://pypi.org/project/neural-cost/):
 
 ```bash
-pip install -e '.[dev]'
-# Choose one or more framework adapters:
-pip install -e '.[torch]'
-pip install -e '.[torch,jax,tensorflow]'
+pip install neural-cost
+```
+
+Or using [`uv`](https://docs.astral.sh/uv/):
+
+```bash
+uv add neural-cost
+```
+
+### Framework Adapters
+
+Framework adapters are optional extras, keeping `neural-cost` lightweight with zero mandatory external dependencies:
+
+| Framework | Installation Command | Description |
+|---|---|---|
+| **PyTorch** | `pip install "neural-cost[torch]"` | PyTorch eager execution & FX graph tracer adapter |
+| **JAX** | `pip install "neural-cost[jax]"` | JAX primitives and jaxpr tracing |
+| **JAX on Apple Silicon (Metal)** | `pip install "neural-cost[jax-metal]"` | Official Apple Metal plugin for JAX GPU acceleration |
+| **JAX on Apple Silicon (MPS)** | `pip install "neural-cost[jax-mps]"` | Community MLX backend for Apple Silicon MPS |
+| **TensorFlow** | `pip install "neural-cost[tensorflow]"` | TensorFlow / Keras layer adapter |
+| **All Frameworks** | `pip install "neural-cost[torch,jax,tensorflow]"` | All supported deep learning framework adapters |
+| **Development** | `pip install "neural-cost[dev]"` | Test suite (`pytest`) & code style tools (`ruff`) |
+
+### Development & Source Installation
+
+For local development or running benchmarks directly from the source repository:
+
+```bash
+git clone https://github.com/davidgraymi/neural-cost.git
+cd neural-cost
+pip install -e '.[dev,torch,jax,tensorflow]'
 ```
 
 ## Architecture
@@ -152,7 +190,9 @@ Run the architecture comparison script to benchmark five canonical neural
 network families side-by-side across all installed frameworks:
 
 ```bash
-pip install -e '.[torch,jax,tensorflow]'
+pip install "neural-cost[torch,jax,tensorflow]"
+# Or from local editable checkout:
+# pip install -e '.[torch,jax,tensorflow]'
 python examples/architecture_comparison.py
 ```
 
@@ -216,14 +256,14 @@ JAX requires an explicit GPU plugin to run on Apple Silicon GPUs.
 Install one of:
 
 ```bash
-# Official Apple plugin (tied to specific jaxlib versions — check compatibility)
-pip install -e '.[jax-metal]'
-# or
+# Official Apple plugin via package extra:
+pip install "neural-cost[jax-metal]"
+# or directly:
 pip install jax-metal
 
-# Community MLX backend (set JAX_PLATFORMS=mps)
-pip install -e '.[jax-mps]'
-# or
+# Community MLX backend via package extra (set JAX_PLATFORMS=mps):
+pip install "neural-cost[jax-mps]"
+# or directly:
 pip install jax-mps && JAX_PLATFORMS=mps python benchmarks/collect_gpu_data.py
 ```
 
@@ -330,7 +370,9 @@ TensorFlow       421.4M       1.6M       9.5   44.59    12.630   0.182     0.9% 
 For a quick cross-framework sanity check on plain matmul shapes, run:
 
 ```bash
-pip install -e '.[torch,jax,tensorflow]'
+pip install "neural-cost[torch,jax,tensorflow]"
+# Or from local editable checkout:
+# pip install -e '.[torch,jax,tensorflow]'
 python examples/compare_frameworks.py
 ```
 
@@ -350,9 +392,15 @@ independent estimator and analyzer.
 
 ## CLI
 
+The `neural-cost-compare` CLI command is installed automatically with the package:
+
 ```bash
-# After pip install:
+# Direct invocation after pip install:
 neural-cost-compare
+
+# Or run instantly without manual installation using uvx:
+uvx --from neural-cost neural-cost-compare
+
 # Or with overrides:
 neural-cost-compare --peak-flops 3.6e12 --memory-bandwidth 100e9
 ```

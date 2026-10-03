@@ -12,7 +12,8 @@ directly comparable:
 
 Run after installing one or more framework extras:
 
-    pip install -e '.[torch,jax,tensorflow]'
+    pip install "neural-cost[torch,jax,tensorflow]"
+    # Or from local source: pip install -e '.[torch,jax,tensorflow]'
     python examples/architecture_comparison.py
 
 Hardware is auto-detected (Apple Silicon, NVIDIA, CPU fallback). Override:
@@ -682,7 +683,9 @@ def main() -> None:
                 print(f"    {arch:<14} ERROR: {exc}")
 
     if not all_results:
-        raise SystemExit("Install at least one framework: pip install -e '.[torch,jax,tensorflow]'")
+        raise SystemExit(
+            "Install at least one framework: pip install 'neural-cost[torch,jax,tensorflow]'"
+        )
 
     print()
     for arch in ARCHITECTURES:
