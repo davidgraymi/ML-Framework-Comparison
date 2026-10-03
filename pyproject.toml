@@ -10,10 +10,36 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Neural Cost contributors" }]
+keywords = [
+  "deep-learning",
+  "flops",
+  "gap-analysis",
+  "hardware-profiling",
+  "jax",
+  "memory-bandwidth",
+  "neural-networks",
+  "performance",
+  "profiler",
+  "pytorch",
+  "roofline-model",
+  "tensorflow",
+]
 classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: System :: Benchmark",
+  "Topic :: System :: Hardware",
+  "Typing :: Typed",
 ]
 dependencies = []
 
@@ -33,6 +59,11 @@ neural-cost-compare = "neural_cost._cli:main"
 
 [project.urls]
 Homepage = "https://github.com/davidgraymi/neural-cost"
+Documentation = "https://github.com/davidgraymi/neural-cost#readme"
+Repository = "https://github.com/davidgraymi/neural-cost"
+Issues = "https://github.com/davidgraymi/neural-cost/issues"
+Changelog = "https://github.com/davidgraymi/neural-cost/releases"
+"PyPI" = "https://pypi.org/project/neural-cost/"
 
 [tool.hatch.version]
 source = "vcs"
