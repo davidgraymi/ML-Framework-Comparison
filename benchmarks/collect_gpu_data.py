@@ -911,8 +911,6 @@ def eval_torch_gpu(
                 else:
                     return _cpu_block(fn, args, warmup, repeats)
 
-            theo_min = mem.inference_minimum_bytes
-            theo_cons = mem.inference_conservative_bytes
 
             # Baseline (eager GPU)
             try:
@@ -1020,8 +1018,6 @@ def eval_jax_gpu(
             except Exception:
                 continue
 
-            theo_min = mem.inference_minimum_bytes
-            theo_cons = mem.inference_conservative_bytes
 
             # Baseline (eager on GPU device)
             try:
@@ -1110,8 +1106,6 @@ def eval_tensorflow_gpu(
             except Exception:
                 continue
 
-            theo_min = mem.inference_minimum_bytes
-            theo_cons = mem.inference_conservative_bytes
             fn = lambda *a: model(*a, training=False)
 
             # Baseline (eager GPU)
