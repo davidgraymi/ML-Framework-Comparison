@@ -240,6 +240,17 @@ def analyze_gap(
         findings.append(
             "Compute-bound: consider faster kernels, tensor cores, or greater parallelism."
         )
+
+    achieved_bw = estimate.total_bytes / observed
+    bw_utilization = (
+        achieved_bw / hardware.memory_bandwidth if hardware.memory_bandwidth > 0 else 0.0
+    )
+    if bw_utilization >= 0.60:
+        findings.append(
+            f"Memory-bandwidth saturation: achieved bandwidth ({achieved_bw / 1e9:.1f} GB/s) reaches "
+            f"{bw_utilization:.1%} of hardware peak ({hardware.memory_bandwidth / 1e9:.1f} GB/s)."
+        )
+
     if efficiency < 0.5:
         findings.append(
             "Large roofline gap: inspect launch overhead, synchronization, shape padding, and data movement."
